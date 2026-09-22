@@ -1,0 +1,35 @@
+{
+  "pump_defaults": {
+    "max_simultaneous_valves": 1,
+    "startup_time_s": 3,
+    "shutdown_time_s": 5
+  },
+  "valve_defaults": {
+    "opening_time_s": 3,
+    "closing_time_s": 3
+  },
+  "threshold_defaults": {
+    "irrigation_duration_s": 300,
+    "infiltration_wait_s": 900
+  },
+  "sensor_readings": {
+    "averaging_window_minutes": 15,
+    "history_limit": 100
+  },
+  "refresh_intervals": {
+    "dashboard_seconds": 15,
+    "zone_detail_seconds": 20
+  },
+  "health_checks": {
+    "sensor_offline_minutes": 30,
+    "device_offline_minutes": 10,
+    "no_effect_after_minutes": 15,
+    "sensor_stuck_minutes": 60
+  },
+  "security": {
+    "session_timeout_minutes": 60
+  },
+  "data_retention": {
+    "sensor_readings_retention_days": 90
+  }
+}

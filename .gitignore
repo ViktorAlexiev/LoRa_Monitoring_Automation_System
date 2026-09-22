@@ -1,0 +1,78 @@
+# ============================================================
+# Secrets — never commit real credentials or crypto material
+# ============================================================
+deploy/.env
+deploy/mosquitto_passwd
+firmware_uploader/network_key.py
+*.env
+.env.*
+!.env.example
+*_passwd
+*.pem
+*.key
+id_rsa*
+
+# ============================================================
+# Runtime data / databases — instance data, not source
+# ============================================================
+**/data/app.db
+*.db
+*.sqlite
+*.sqlite3
+
+# ============================================================
+# Logs
+# ============================================================
+*.log
+**/backend_out.log
+**/backend_err.log
+
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# ============================================================
+# Node / frontend
+# ============================================================
+node_modules/
+web_dashboard/frontend/dist/
+
+# ============================================================
+# Build outputs (PyInstaller etc.) — regenerate via build scripts,
+# not tracked in git
+# ============================================================
+firmware_uploader/build/
+firmware_uploader/dist/
+
+# Old pre-git backup archives (each 100MB+, superseded by git history)
+firmware_uploader/ARCHIVE/
+*.rar
+
+# Compiled Arduino sketch build folders left behind by arduino-cli
+firmware_uploader/firmware_src/**/build/
+
+# ============================================================
+# Editor / tool-local config — not shared project source
+# ============================================================
+.claude/
+.vscode/
+.idea/
+*.swp
+
+# ============================================================
+# OS cruft
+# ============================================================
+.DS_Store
+Thumbs.db
+
+# ============================================================
+# Working documentation backups created during edits
+# ============================================================
+documentation/*.backup_*.docx
+documentation/*.backup*.docx

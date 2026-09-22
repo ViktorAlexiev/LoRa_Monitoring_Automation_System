@@ -1,0 +1,13 @@
+fastapi>=0.110,<0.121
+uvicorn[standard]>=0.29,<0.31
+sqlalchemy>=2.0,<2.1
+pydantic>=2.6,<3.0
+greenlet==3.0.3
+
+# MySQL driver - pure Python (no C build step), needed once DATABASE_URL
+# points at mysql+pymysql://... instead of the default local SQLite file.
+pymysql>=1.1,<2.0
+
+# Needed only by daemons/reconciler.py and daemons/mqtt_bridge.py - the
+# FastAPI web app itself never imports paho.
+paho-mqtt>=2.0,<3.0

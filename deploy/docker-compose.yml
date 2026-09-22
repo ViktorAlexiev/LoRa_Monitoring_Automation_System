@@ -1,0 +1,176 @@
+# Deploy this folder as-is on the Raspberry Pi (see README.md here).
+# Live secrets/settings come from .env, next to this file, never from git.
+
+# Every service below inherits this via "<<: *default-logging" - without a
+# cap, json-file (Docker's default log driver) grows forever and can fill
+# the Pi's SD card over weeks/months of uptime. 3 files x 10m = 30m max per
+# container, ~240m total across all 8 - trivial next to a typical SD card.
+x-logging: &default-logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    <<: *default-logging
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto_passwd:/mosquitto/config/passwd:ro
+      - mosquitto_data:/mosquitto/data
+    ports:
+      - "1883:1883"  # reachable by the LoRa gateway on the LAN - never forward this on the router
+    mem_limit: 64m
+
+  mysql:
+    image: mysql:8
+    restart: unless-stopped
+    <<: *default-logging
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 768m
+
+  web-api:
+    image: ${BACKEND_IMAGE}
+    restart: unless-stopped
+    <<: *default-logging
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+      COOKIE_SECURE: "false"
+      # Real deployment: empty database except the guaranteed hidden admin
+      # account (see app/main.py) - no demo zones/sensors/users.
+      SEED_DEMO_DATA: "false"
+      SYSTEM_ADMIN_USERNAME: ${SYSTEM_ADMIN_USERNAME}
+      SYSTEM_ADMIN_PASSWORD: ${SYSTEM_ADMIN_PASSWORD}
+    volumes:
+      # Shared with the daemons below - app/config.py's CONFIG is a plain
+      # per-process file (config/defaults.json) baked into the image, not a
+      # DB table. Without this shared volume, a Settings-tab change (POST
+      # /api/config) rewrites only web-api's own copy - the daemons keep
+      # running with the image's original defaults forever, silently
+      # ignoring anything the admin changed. Found via live bench testing.
+      - config_data:/app/config
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      # /api/health needs no auth (see app/main.py) - used here only to know
+      # when the schema/hidden-admin bootstrap (which runs synchronously
+      # before uvicorn even binds the port) has actually finished, so the
+      # daemons below don't start querying tables that don't exist yet.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 256m
+
+  reconciler:
+    image: ${BACKEND_IMAGE}
+    restart: unless-stopped
+    <<: *default-logging
+    command: python daemons/reconciler.py
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+      MQTT_HOST: mosquitto
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+    volumes:
+      - config_data:/app/config
+    depends_on:
+      mysql:
+        condition: service_healthy
+      web-api:
+        condition: service_healthy  # waits until the schema/hidden-admin bootstrap has actually finished
+      mosquitto:
+        condition: service_started
+    mem_limit: 128m
+
+  desired_state_setter:
+    image: ${BACKEND_IMAGE}
+    restart: unless-stopped
+    <<: *default-logging
+    command: python daemons/desired_state_setter.py
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+    volumes:
+      - config_data:/app/config
+      # Clock-regime schedules (start_time/end_time) are matched against
+      # datetime.now() - mounting the Pi's own /etc/localtime (read-only)
+      # makes that follow whatever timezone the device is actually
+      # configured with, instead of the container defaulting to UTC.
+      - /etc/localtime:/etc/localtime:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      web-api:
+        condition: service_healthy
+    mem_limit: 128m
+
+  health_checker:
+    image: ${BACKEND_IMAGE}
+    restart: unless-stopped
+    <<: *default-logging
+    command: python daemons/health_checker.py
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+    volumes:
+      - config_data:/app/config
+    depends_on:
+      mysql:
+        condition: service_healthy
+      web-api:
+        condition: service_healthy
+    mem_limit: 128m
+
+  mqtt_bridge:
+    image: ${BACKEND_IMAGE}
+    restart: unless-stopped
+    <<: *default-logging
+    command: python daemons/mqtt_bridge.py
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+      MQTT_HOST: mosquitto
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+    volumes:
+      - config_data:/app/config
+    depends_on:
+      mysql:
+        condition: service_healthy
+      web-api:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    mem_limit: 128m
+
+  nginx:
+    image: ${FRONTEND_IMAGE}
+    restart: unless-stopped
+    <<: *default-logging
+    ports:
+      # host 80 -> container 8080 (nginx-unprivileged image, see
+      # frontend/Dockerfile) - browsers still just hit port 80, nothing
+      # changes on that side.
+      - "80:8080"
+    depends_on:
+      - web-api
+    mem_limit: 64m
+
+volumes:
+  mysql_data:
+  mosquitto_data:
+  config_data:
