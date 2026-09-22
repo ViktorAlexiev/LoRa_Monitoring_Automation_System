@@ -25,6 +25,7 @@ void radio_setup() {
   LoRa.setTxPower(LORA_TX_POWER_DBM);
   LoRa.setPreambleLength(LORA_PREAMBLE_LEN);
   LoRa.setSyncWord(LORA_SYNC_WORD);
+  LoRa.enableCrc();
 
   enter_rx_mode();
 }

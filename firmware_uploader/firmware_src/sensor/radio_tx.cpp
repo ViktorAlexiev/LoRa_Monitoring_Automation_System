@@ -25,6 +25,7 @@ void lora_init() {
   LoRa.setTxPower(LORA_TX_POWER_DBM);
   LoRa.setPreambleLength(LORA_PREAMBLE_LEN);
   LoRa.setSyncWord(LORA_SYNC_WORD);
+  LoRa.enableCrc();
 }
 
 // Тия 4 float-а са plaintext-ът, който се криптира - S_ID НЕ е част от него, пътува

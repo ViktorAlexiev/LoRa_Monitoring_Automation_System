@@ -27,6 +27,7 @@ void lora_radio_setup() {
   LoRa.setTxPower(LORA_TX_POWER_DBM);
   LoRa.setPreambleLength(LORA_PREAMBLE_LEN);
   LoRa.setSyncWord(LORA_SYNC_WORD);
+  LoRa.enableCrc();
 }
 
 // Проста CAD-защита преди TX - кратък retry прозорец вместо неопределено чакане.
