@@ -36,6 +36,11 @@ direction), the override expires and the schedule resumes normal control
 from that tick - i.e. the override lasts for "the rest of this occurrence,"
 never longer.
 
+Zone average: every decision below (threshold rules, the overwatering
+guard) reads the zone's average through app/zone_stats.py's zone_average -
+the very same number the dashboard shows (windowed average, 255 markers and
+outliers excluded), not a separate calculation.
+
 Overwatering guard (clock regime only): before opening a scheduled valve,
 checks the zone's humidity_warn_max (a zone-wide safety bound, independent
 of regime - see models.Zone). If soil moisture is already at/above it, the
@@ -58,6 +63,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import models  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
+from app.zone_stats import zone_average  # noqa: E402
 
 TICK_SECONDS = 5
 
@@ -168,33 +174,11 @@ def _tick_clock_zones(db, now):
             # ceiling - see health_checker.py, which raises SOIL_TOO_WET for
             # the same threshold, so no separate error is written here.
             if zone.humidity_warn_max is not None:
-                reading = _latest_reading_avg(zone, "soil_h")
+                reading = zone_average(zone, "soil_h")
                 if reading is not None and reading >= zone.humidity_warn_max:
                     continue
 
             _try_claim_slot(db, zone, valve, valve.pump)
-
-
-SENSOR_FAULT_VALUE = 255.0  # manual 2.1: "this cycle's reading is invalid" marker - never a real value
-
-
-def _latest(sensor):
-    """The chronologically latest reading - NOT sensor.readings[-1], which
-    is just relationship/insertion order and can be wrong whenever a row
-    arrives out of sequence (a delayed MQTT message, backfilled data, ...).
-    See daemons/health_checker.py's identical helper."""
-    return max(sensor.readings, key=lambda r: r.recorded_at) if sensor.readings else None
-
-
-def _latest_reading_avg(zone, attr):
-    values = []
-    for sensor in zone.sensors:
-        last = _latest(sensor)
-        if last is not None:
-            v = getattr(last, attr)
-            if v is not None and v != SENSOR_FAULT_VALUE:
-                values.append(v)
-    return sum(values) / len(values) if values else None
 
 
 def _claim_with_priority(db, zone, valve, pump):
@@ -255,7 +239,7 @@ def _tick_threshold_zones(db, now):
             if last_off and (now - last_off).total_seconds() < rule.infiltration_wait_s:
                 continue  # still settling from the last cycle - don't re-check yet
 
-            reading = _latest_reading_avg(zone, attr)
+            reading = zone_average(zone, attr)
             needs_water = reading is not None and rule.min_val is not None and reading < rule.min_val
 
             if not needs_water:

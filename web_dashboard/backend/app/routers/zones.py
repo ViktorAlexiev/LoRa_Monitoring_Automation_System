@@ -1,4 +1,3 @@
-import datetime
 import math
 from typing import List
 
@@ -6,47 +5,11 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, pump_capacity, schemas
+from ..zone_stats import zone_averages
 from ..auth import accessible_zone_ids, get_current_user, require_role, require_zone_control, require_zone_view
-from ..config import CONFIG
 from ..database import get_db
 
 router = APIRouter(prefix="/api/zones", tags=["zones"], dependencies=[Depends(get_current_user)])
-
-# Per Документация на системата.docx 2.1: a sensor sends 255.0 in any
-# reading field to mean "this cycle's reading for that field is invalid" -
-# it is stored as-is (mqtt_bridge.py), never silently dropped, because
-# health_checker.py's SENSOR_FAULT_255 check needs the literal marker.
-# Anything that AVERAGES readings has to filter it out itself, though - see
-# _zone_summary below.
-SENSOR_FAULT_VALUE = 255.0
-
-
-def _robust_mean(values, z_thresh=2.0):
-    """Arithmetic mean, but a value that's a leave-one-out outlier against
-    the rest is excluded first - the exact same test health_checker.py's
-    SENSOR_OUTLIER check uses (each value's deviation from the mean/stddev
-    of the OTHER values, not a population stat that includes itself and can
-    mask its own extremity). This means: a single miscalibrated/glitching
-    sensor can't drag the zone's displayed average off, but as long as
-    everything agrees (the normal case), this is just a plain mean - real
-    legitimate variation between sensors is NOT smoothed away, unlike a
-    straight median would. Needs >=3 values to judge anything (with 2, a
-    "deviation" is meaningless - either one is as valid as the other), so
-    falls back to a plain mean below that."""
-    if len(values) < 3:
-        return sum(values) / len(values)
-    keep = []
-    for i, v in enumerate(values):
-        others = values[:i] + values[i + 1:]
-        mean_other = sum(others) / len(others)
-        var_other = sum((o - mean_other) ** 2 for o in others) / len(others)
-        std_other = var_other ** 0.5
-        deviates = abs(v - mean_other) > 0.01 if std_other == 0 else abs(v - mean_other) > z_thresh * std_other
-        if not deviates:
-            keep.append(v)
-    if not keep:  # degenerate case (shouldn't happen in practice) - don't return nothing
-        return sum(values) / len(values)
-    return sum(keep) / len(keep)
 
 
 def _dew_point(air_t, air_h):
@@ -75,29 +38,9 @@ def _detach_valve_from_zone(db: Session, valve: models.Valve):
 
 
 def _zone_summary(zone: models.Zone) -> schemas.ZoneSummary:
-    # Averages readings recorded within the last N minutes (config/defaults.json
-    # -> sensor_readings.averaging_window_minutes), not just the latest single
-    # reading - a sensor with nothing in that window reports "-" (stale).
-    window_min = CONFIG["sensor_readings"]["averaging_window_minutes"]
-    cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=window_min)
-
-    def recent(attr):
-        values = []
-        for s in zone.sensors:
-            for r in s.readings:
-                if r.recorded_at >= cutoff:
-                    v = getattr(r, attr)
-                    if v is not None and v != SENSOR_FAULT_VALUE:
-                        values.append(v)
-        return values
-
-    soil_t = recent("soil_t")
-    soil_h = recent("soil_h")
-    air_t = recent("air_t")
-    air_h = recent("air_h")
-
-    def avg(values):
-        return round(_robust_mean(values), 1) if values else None
+    # The average itself is defined in app/zone_stats.py, shared with
+    # desired_state_setter.py so both always see the same number.
+    avgs = zone_averages(zone)
 
     modules: List[schemas.ModuleRef] = []
     pumps_seen = {}
@@ -112,11 +55,10 @@ def _zone_summary(zone: models.Zone) -> schemas.ZoneSummary:
     severity_rank = {"warning": 0, "error": 1, "critical": 2}
     worst = max(open, key=lambda e: severity_rank.get(e.severity, 0), default=None)
 
-    avg_air_t, avg_air_h = avg(air_t), avg(air_h)
     summary = schemas.ZoneSummary.model_validate(zone)
     summary.readings = schemas.GaugeReadings(
-        soil_t=avg(soil_t), soil_h=avg(soil_h), air_t=avg_air_t, air_h=avg_air_h,
-        dew_point=_dew_point(avg_air_t, avg_air_h),
+        soil_t=avgs["soil_t"], soil_h=avgs["soil_h"], air_t=avgs["air_t"], air_h=avgs["air_h"],
+        dew_point=_dew_point(avgs["air_t"], avgs["air_h"]),
     )
     summary.modules = modules
     summary.open_error_count = len(open)
