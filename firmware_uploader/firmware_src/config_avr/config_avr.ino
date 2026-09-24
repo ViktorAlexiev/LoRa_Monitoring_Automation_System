@@ -6,7 +6,7 @@
   Качва се ПЪРВО (преди реалния sensor/executor/repeater firmware).
   Слуша серийния порт за пакет от Python програмата във формат:
 
-      CFG:{"id":"CS001","consumers":[{"id":"B1C2","pin":"A3"},{"id":"D4E5","pin":"10"}]}
+      CFG:{"id":"CS001","consumers":[{"id":"AB12","pin":"A3"},{"id":"CD34","pin":"10"}]}
 
   За sensor/repeater (без консуматори) пакетът е просто:
 

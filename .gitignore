@@ -3,6 +3,7 @@
 # ============================================================
 deploy/.env
 deploy/mosquitto_passwd
+deploy/docker-compose.override.yml
 firmware_uploader/network_key.py
 *.env
 .env.*
