@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import Gauge from "./Gauge.jsx";
 
-const MODE_LABEL = { manual: "Ръчен", clock: "По часовник", threshold: "По прагове" };
+const MODE_LABEL = { manual: "Ръчен", clock: "По време", threshold: "По прагове" };
 const MODE_CLASS = { manual: "pill-manual", clock: "pill-clock", threshold: "pill-threshold" };
 
 export default function ZoneCard({ zone }) {

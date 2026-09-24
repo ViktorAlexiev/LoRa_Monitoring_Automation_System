@@ -7,7 +7,7 @@ import ZoneModulesModal from "../../components/ZoneModulesModal.jsx";
 import { SearchBox } from "../../components/TableControls.jsx";
 import { useTable } from "../../utils/useTable.js";
 
-const MODE_LABEL = { manual: "Ръчен", clock: "По часовник", threshold: "По прагове" };
+const MODE_LABEL = { manual: "Ръчен", clock: "По време", threshold: "По прагове" };
 const MODE_CLASS = { manual: "pill-manual", clock: "pill-clock", threshold: "pill-threshold" };
 
 function NewZoneModal({ onClose, onCreated }) {
@@ -42,7 +42,7 @@ function NewZoneModal({ onClose, onCreated }) {
           <label>Режим</label>
           <select value={form.regime} onChange={(e) => setForm({ ...form, regime: e.target.value })}>
             <option value="manual">Ръчен</option>
-            <option value="clock">По часовник</option>
+            <option value="clock">По време</option>
             <option value="threshold">По прагове</option>
           </select>
         </div>
@@ -229,7 +229,7 @@ export default function Zones() {
                   <label>Режим на управление</label>
                   <select value={z.regime} onChange={(e) => requestRegimeChange(z, e.target.value)}>
                     <option value="manual">Ръчен</option>
-                    <option value="clock">По часовник</option>
+                    <option value="clock">По време</option>
                     <option value="threshold">По прагове</option>
                   </select>
                 </div>

@@ -207,7 +207,7 @@ function HumidityGuardTab({ zone, onSaved }) {
     <>
       <div className="section-title">Защита от прекалено ниска/висока влажност</div>
       <p className="muted">
-        Важи независимо от режима на зоната. При режим „по часовник“ се ползва и като защита срещу
+        Важи независимо от режима на зоната. При режим „по време“ се ползва и като защита срещу
         преполиване — планиран интервал не отваря клапан, ако почвата вече е на/над максимума.
       </p>
       <div className="form-grid">
@@ -258,7 +258,7 @@ export default function ZoneSettingsModal({ zone, valves, onClose, onSaved = () 
     <Modal title={`Настройки на автоматичните режими — ${zone.name}`} onClose={onClose} width="560px">
       <div className="subtabs">
         <button className={`subtab ${activeTab === "clock" ? "active" : ""}`} onClick={() => setActiveTab("clock")}>
-          По часовник {zone.regime === "clock" && "· активен"}
+          По време {zone.regime === "clock" && "· активен"}
         </button>
         <button className={`subtab ${activeTab === "threshold" ? "active" : ""}`} onClick={() => setActiveTab("threshold")}>
           По прагове {zone.regime === "threshold" && "· активен"}

@@ -9,7 +9,7 @@ import Gauge from "../components/Gauge.jsx";
 import { nextTransition, fmtTransition } from "../utils/schedule.js";
 import { useAuth, zoneAccessLevel } from "../AuthContext.jsx";
 
-const MODE_LABEL = { manual: "Ръчен", clock: "По часовник", threshold: "По прагове" };
+const MODE_LABEL = { manual: "Ръчен", clock: "По време", threshold: "По прагове" };
 const MODE_CLASS = { manual: "pill-manual", clock: "pill-clock", threshold: "pill-threshold" };
 const TABS = [
   { key: "overview", label: "Преглед" },
@@ -350,7 +350,7 @@ export default function ZoneDetail() {
             <label>Режим на управление</label>
             <select value={zone.regime} onChange={(e) => requestRegimeChange(e.target.value)}>
               <option value="manual">Ръчен</option>
-              <option value="clock">По часовник</option>
+              <option value="clock">По време</option>
               <option value="threshold">По прагове</option>
             </select>
           </div>

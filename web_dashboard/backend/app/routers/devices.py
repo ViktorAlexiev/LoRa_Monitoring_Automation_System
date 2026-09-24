@@ -398,7 +398,7 @@ def send_valve_command(valve_id: str, payload: schemas.ValveCommandCreate, db: S
     if payload.requested_state == "on" and obj.pump:
         occupants = [v for v in obj.pump.valves if v.id != obj.id and v.current_state == "on"]
         if len(occupants) + 1 > obj.pump.max_simultaneous_valves:
-            REGIME_LABEL = {"manual": "ръчен", "clock": "по часовник", "threshold": "по прагове"}
+            REGIME_LABEL = {"manual": "ръчен", "clock": "по време", "threshold": "по прагове"}
             occupant_desc = "; ".join(
                 f"{v.id} ({v.zone.name if v.zone else '—'}, режим: {REGIME_LABEL.get(v.zone.regime, v.zone.regime) if v.zone else '—'})"
                 for v in occupants
