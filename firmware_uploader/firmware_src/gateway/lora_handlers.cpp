@@ -7,8 +7,12 @@
 #include "config_storage.h"
 #include "wifi_mqtt.h"
 #include "cad.h"
+#include "channel_access.h"
 
 void lora_radio_setup() {
+  // времената (CAD, ACK timeout-и) се извеждат от SF/BW, прочетени от NVS
+  radioTimingInit(LORA_SF, LORA_BW_HZ, LORA_CR_DENOM, LORA_PREAMBLE_LEN, true);
+
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_CS);
   LoRa.setPins(LORA_CS, LORA_RST, LORA_DIO0);
 
@@ -21,23 +25,10 @@ void lora_radio_setup() {
     delay(50);
   }
 
-  LoRa.setSpreadingFactor(LORA_SF);
-  LoRa.setSignalBandwidth(LORA_BANDWIDTH_HZ);
-  LoRa.setCodingRate4(LORA_CR_DENOM);
+  radioApplyModemSettings();   // SF, BW, CR, преамбюл + LDRO (по реалното Ts)
   LoRa.setTxPower(LORA_TX_POWER_DBM);
-  LoRa.setPreambleLength(LORA_PREAMBLE_LEN);
   LoRa.setSyncWord(LORA_SYNC_WORD);
   LoRa.enableCrc();
-}
-
-// Проста CAD-защита преди TX - кратък retry прозорец вместо неопределено чакане.
-static bool waitForClearChannel() {
-  uint8_t attempts = 0;
-  while (channelActive() && attempts < 5) {
-    delay(random(5, 20));
-    attempts++;
-  }
-  return !channelActive();
 }
 
 // ---------- Sensor/executor wire дължини (криптирани - виж crypto_common.h) ----------
@@ -56,12 +47,83 @@ static bool waitForClearChannel() {
 #define STATE_ENTRY_LEN            5    // C_ID(4)+state(1), на консуматор
 #define STATE_MAX_CONSUMERS        10   // трябва да съвпада с executor/config_storage.h MAX_CONSUMERS
 
+// ---------- Опашка за изходящи пакети с неблокиращ достъп до канала ----------
+// Команда, state request и state-resp ACK (командният път) не се изпращат веднага, а се
+// подреждат тук. gwTxTick() (викан от lora_managers_tick) върти достъпа до канала на малки
+// стъпки (най-много един CAD на ход) и НЕ блокира приемането на входящи пакети.
+// Опашката е малка: команда и state request са по една в полет, а state-resp ACK-овете могат
+// да са няколко наведнъж (напр. при общо включване на няколко Executor-а).
+#define GW_TX_QUEUE_SIZE 4
+struct GwTxEntry {
+  bool     used;
+  uint8_t  len;
+  uint8_t  buf[CMD_WIRE_LEN];   // най-дългият изходящ пакет (26 B)
+};
+static GwTxEntry     gwTxQueue[GW_TX_QUEUE_SIZE];
+static bool          gwTxAccessActive = false;   // за главата на опашката тече достъп до канала
+static ChannelAccess gwTxAccess;
+
+static bool gwTxEnqueue(const uint8_t *buf, uint8_t len) {
+  for (uint8_t i = 0; i < GW_TX_QUEUE_SIZE; i++) {
+    if (!gwTxQueue[i].used) {
+      memcpy(gwTxQueue[i].buf, buf, len);
+      gwTxQueue[i].len = len;
+      gwTxQueue[i].used = true;
+      return true;
+    }
+  }
+  Serial.println("[ERR] TX опашката е пълна, пакетът е изгубен");
+  return false;
+}
+
+static int8_t gwTxHead() {
+  for (uint8_t i = 0; i < GW_TX_QUEUE_SIZE; i++) if (gwTxQueue[i].used) return (int8_t)i;
+  return -1;
+}
+
+// CAD оставя радиото в standby - връщаме го на слушане само след реално изпълнен CAD
+static bool gwCadRan = false;
+static bool gwCadProbe() {
+  gwCadRan = true;
+  return channelActive();
+}
+
+static void gwTxTick() {
+  int8_t h = gwTxHead();
+  if (h < 0) return;
+  if (!gwTxAccessActive) {
+    channelAccessStart(&gwTxAccess, CH_POLICY_COMMAND);
+    gwTxAccessActive = true;
+  }
+
+  gwCadRan = false;
+  uint8_t r = channelAccessPoll(&gwTxAccess, millis(), gwCadProbe, channelRandom);
+  if (r == CH_WAIT) {
+    if (gwCadRan) LoRa.receive();
+    return;
+  }
+
+  if (r == CH_CLEAR) {
+    LoRa.beginPacket();
+    LoRa.write(gwTxQueue[h].buf, gwTxQueue[h].len);
+    LoRa.endPacket();
+    LoRa.receive();
+    Serial.print("[TX] изпратен пакет, len="); Serial.println(gwTxQueue[h].len);
+  } else {
+    // срокът за сондиране изтече - каналът остана зает. Пакетът се отхвърля; надеждността
+    // е на по-горния слой (retry на командата/state request, retry на Executor за restart).
+    LoRa.receive();
+    Serial.println("[TX] канала остана зает, отказвам се от този пакет (retry на по-горния слой)");
+  }
+  gwTxQueue[h].used = false;
+  gwTxAccessActive = false;
+}
+
 // ---------- Dedup буфер на sensor пакети (пази от дублиране при 2+ repeater-и) ----------
 // Пази суровите radio байтове (ciphertext+counter+tag, различни при всяка трансмисия
 // благодарение на nonce-а) - ring buffer, без timestamp: най-старият запис просто се
-// презаписва при нов. Сравнява само първите SENSOR_WIRE_LEN байта - директен (30 B) и
-// препратен от Repeater (31 B, с trailing REPEATED_MARKER) вариант на едно и също
-// измерване се разпознават като дубликат независимо от trailing маркера.
+// презаписва при нов. Директният и препратеният от Repeater пакет са еднакви (30 B), затова
+// дубликатът се разпознава чрез директно сравнение на цялото съдържание.
 #define GW_DEDUP_BUFFER_SIZE  8
 
 static uint8_t gwDedupBuf[GW_DEDUP_BUFFER_SIZE][SENSOR_WIRE_LEN];
@@ -130,15 +192,7 @@ static void sendCommandPacket(const CommandPacket& p) {
   cryptoBuildWirePacket(wireBuf + MODULE_ID_LEN, NETWORK_KEY, CRYPTO_TYPE_GW_CMD,
                          (const uint8_t*)GATEWAY_ID, cmdCeilingNext(), plaintext, sizeof(plaintext));
 
-  if (!waitForClearChannel()) {
-    Serial.println("[TX CMD] канала зает, пропускам този опит (следващ retry цикъл ще опита пак)");
-    return;
-  }
-
-  LoRa.beginPacket();
-  LoRa.write(wireBuf, sizeof(wireBuf));
-  LoRa.endPacket();
-  LoRa.receive();
+  gwTxEnqueue(wireBuf, sizeof(wireBuf));   // достъпът до канала е неблокиращ (gwTxTick)
 }
 
 // State request (криптирана): [target M_ID, чисто] + [wire: GATEWAY_ID+ciphertext(0)+counter+tag]
@@ -150,15 +204,7 @@ static void sendStateRequestPacket(const char* m_id) {
   cryptoBuildWirePacket(wireBuf + MODULE_ID_LEN, NETWORK_KEY, CRYPTO_TYPE_STATE_REQ,
                          (const uint8_t*)GATEWAY_ID, cmdCeilingNext(), NULL, 0);
 
-  if (!waitForClearChannel()) {
-    Serial.println("[TX STATE_REQ] канала зает, пропускам този опит");
-    return;
-  }
-
-  LoRa.beginPacket();
-  LoRa.write(wireBuf, sizeof(wireBuf));
-  LoRa.endPacket();
-  LoRa.receive();
+  gwTxEnqueue(wireBuf, sizeof(wireBuf));
 }
 
 // State-resp ACK (само за RESTART варианта): [target M_ID, чисто] + [wire: GATEWAY_ID+ciphertext(0)+counter+tag]
@@ -169,15 +215,9 @@ static void sendStateRespAck(const uint8_t* targetM_ID6) {
   cryptoBuildWirePacket(wireBuf + MODULE_ID_LEN, NETWORK_KEY, CRYPTO_TYPE_STATE_RESP_ACK,
                          (const uint8_t*)GATEWAY_ID, cmdCeilingNext(), NULL, 0);
 
-  if (!waitForClearChannel()) {
-    Serial.println("[TX STATE_RESP_ACK] канала зает, пропускам (Executor ще retry-ва)");
-    return;
+  if (gwTxEnqueue(wireBuf, sizeof(wireBuf))) {
+    Serial.println("[TX STATE_RESP_ACK] заявен");
   }
-
-  LoRa.beginPacket();
-  LoRa.write(wireBuf, sizeof(wireBuf));
-  LoRa.endPacket();
-  LoRa.receive();
 
   Serial.println("[TX STATE_RESP_ACK] изпратен");
 }
@@ -243,7 +283,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 // ---------------- ACK/retry мениджъри ----------------
 static void commandAckManager() {
   if (!cmdPending) return;
-  if (millis() - pendingSentAt >= ACK_TIMEOUT_MS) {
+  if (millis() - pendingSentAt >= radioAckTimeoutCmdMs()) {
     if (pendingRetries < MAX_RETRIES) {
       pendingRetries++;
       pendingSentAt = millis();
@@ -258,7 +298,7 @@ static void commandAckManager() {
 
 static void stateRequestManager() {
   if (!stateReqPending) return;
-  if (millis() - stateReqSentAt >= ACK_TIMEOUT_MS) {
+  if (millis() - stateReqSentAt >= radioStateReqTimeoutMs()) {
     if (stateReqRetries < MAX_RETRIES) {
       stateReqRetries++;
       stateReqSentAt = millis();
@@ -276,6 +316,7 @@ static void stateRequestManager() {
 }
 
 void lora_managers_tick() {
+  gwTxTick();
   commandAckManager();
   stateRequestManager();
 }
@@ -329,10 +370,8 @@ void lora_handle_incoming(int packetSize) {
   float snr = LoRa.packetSnr();
   uint32_t ts = (uint32_t)(millis() / 1000);
 
-  // sizeof(SensorPacket wire) - директно от sensor; +1 - препратен от repeater (trailing
-  // REPEATED_MARKER, не участва в декриптирането - dedup сравнява само първите
-  // SENSOR_WIRE_LEN байта, независимо дали маркерът присъства).
-  if (len == SENSOR_WIRE_LEN || len == SENSOR_WIRE_LEN + 1) {
+  // Приемат се само 30-байтови сензорни пакети (директни или препратени от Repeater - без маркер).
+  if (len == SENSOR_WIRE_LEN) {
     if (gwDedupSeen(buf)) {
       Serial.println("  -> дублиран sensor пакет (вече видян), игнориран");
       return;

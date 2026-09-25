@@ -291,5 +291,63 @@ class TestLoraFrequency(unittest.TestCase):
         self.assertFalse(ok)
 
 
+class TestSfBw(unittest.TestCase):
+    def test_sf_valid_range(self):
+        for sf in range(7, 13):
+            ok, val, msg = v.validate_lora_sf(str(sf))
+            self.assertTrue(ok, msg)
+            self.assertEqual(val, sf)
+
+    def test_sf_invalid(self):
+        for bad in ("6", "13", "", "abc", "7.5", "-7"):
+            ok, val, msg = v.validate_lora_sf(bad)
+            self.assertFalse(ok, bad)
+            self.assertIsNone(val)
+
+    def test_bw_valid_converts_to_hz(self):
+        self.assertEqual(v.validate_lora_bw_khz("62.5")[1], 62500)
+        self.assertEqual(v.validate_lora_bw_khz("125")[1], 125000)
+        self.assertEqual(v.validate_lora_bw_khz("250")[1], 250000)
+        self.assertEqual(v.validate_lora_bw_khz("62,5")[1], 62500)
+
+    def test_bw_invalid(self):
+        for bad in ("500", "100", "", "x", "0"):
+            ok, val, msg = v.validate_lora_bw_khz(bad)
+            self.assertFalse(ok, bad)
+
+
+class TestLanes(unittest.TestCase):
+    def test_parse_extra_lanes(self):
+        self.assertEqual(v.parse_extra_lanes(""), [])
+        self.assertEqual(v.parse_extra_lanes(" 434.5 , ,433.5"), ["434.5", "433.5"])
+
+    def test_valid_two_lanes(self):
+        ok, lanes, msg = v.validate_lora_lanes(["433", "434"], 125000)
+        self.assertTrue(ok, msg)
+        self.assertEqual(lanes, [433.0, 434.0])
+
+    def test_less_than_two_rejected(self):
+        self.assertFalse(v.validate_lora_lanes(["433"], 125000)[0])
+
+    def test_too_many_rejected(self):
+        many = ["433.1", "433.4", "433.7", "434.0", "434.3", "434.6", "434.7"]
+        self.assertFalse(v.validate_lora_lanes(many, 125000)[0])
+
+    def test_duplicate_rejected(self):
+        self.assertFalse(v.validate_lora_lanes(["433.5", "433.5"], 125000)[0])
+
+    def test_spacing_at_least_two_bw(self):
+        self.assertTrue(v.validate_lora_lanes(["433.5", "433.75"], 125000)[0])
+        self.assertFalse(v.validate_lora_lanes(["433.5", "433.7"], 125000)[0])
+        # при BW 250 kHz минимумът е 0.5 MHz
+        self.assertFalse(v.validate_lora_lanes(["433.5", "433.9"], 250000)[0])
+        self.assertTrue(v.validate_lora_lanes(["433.5", "434.0"], 250000)[0])
+
+    def test_invalid_frequency_in_lane_rejected(self):
+        ok, lanes, msg = v.validate_lora_lanes(["433.5", "500"], 125000)
+        self.assertFalse(ok)
+        self.assertIn("Лента 1", msg)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

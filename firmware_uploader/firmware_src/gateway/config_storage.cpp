@@ -8,6 +8,8 @@ char MQTT_IP_BUF[MQTT_IP_LEN + 1];
 uint16_t MQTT_PORT_VAL = 1883;
 char MQTT_USER_BUF[MQTT_USER_LEN + 1];
 char MQTT_PASSWORD_BUF[MQTT_PASSWORD_LEN + 1];
+uint8_t  LORA_SF = RADIO_SF_DEFAULT;
+uint32_t LORA_BW_HZ = RADIO_BW_DEFAULT_HZ;
 uint32_t LORA_FREQ_HZ = 433000000UL;   // default, презаписва се от NVS в loadConfigFromNvs()
 uint8_t NETWORK_KEY[CRYPTO_KEY_LEN];
 
@@ -66,6 +68,11 @@ void loadConfigFromNvs() {
   uint32_t storedFreq = prefs.getULong("freq", 0);
   if (storedFreq != 0) LORA_FREQ_HZ = storedFreq;
 
+  uint8_t sf = prefs.getUChar("sf", RADIO_SF_DEFAULT);
+  LORA_SF = radioSfValid(sf) ? sf : RADIO_SF_DEFAULT;
+  uint32_t bw = prefs.getULong("bw", RADIO_BW_DEFAULT_HZ);
+  LORA_BW_HZ = (radioBwToIndex(bw) != 0xFF) ? bw : RADIO_BW_DEFAULT_HZ;
+
   size_t keyLen = prefs.getBytes("key", NETWORK_KEY, CRYPTO_KEY_LEN);
   if (keyLen != CRYPTO_KEY_LEN) {
     Serial.println("[WARN] мрежов ключ не е зареден от NVS - крипто операции ще се провалят");
@@ -82,5 +89,8 @@ void loadConfigFromNvs() {
   Serial.print("wifi_pass_len="); Serial.println(strlen(WIFI_PASSWORD_BUF));
   Serial.print("mqtt_ip=");   Serial.print("[");Serial.print(MQTT_IP_BUF);Serial.println("]");
   Serial.print("mqtt_port="); Serial.println(MQTT_PORT_VAL);
+  Serial.print("freq="); Serial.print(LORA_FREQ_HZ);
+  Serial.print(" sf="); Serial.print(LORA_SF);
+  Serial.print(" bw="); Serial.println(LORA_BW_HZ);
   Serial.println("=========================");
 }

@@ -3,6 +3,8 @@
 
 char SENSOR_ID[MODULE_ID_LEN + 1];
 uint32_t LORA_FREQ_HZ = LORA_FREQ_DEFAULT_HZ;
+uint8_t  LORA_SF = RADIO_SF_DEFAULT;
+uint32_t LORA_BW_HZ = RADIO_BW_DEFAULT_HZ;
 uint8_t NETWORK_KEY[CRYPTO_KEY_LEN];
 CeilingCounter txCounter;
 
@@ -19,6 +21,11 @@ void loadConfigFromEeprom() {
   } else {
     LORA_FREQ_HZ = storedFreq;
   }
+
+  uint8_t sf = EEPROM.read(EEPROM_ADDR_SF);
+  LORA_SF = radioSfValid(sf) ? sf : RADIO_SF_DEFAULT;
+  uint32_t bw = radioBwFromIndex(EEPROM.read(EEPROM_ADDR_BW_IDX));
+  LORA_BW_HZ = bw ? bw : RADIO_BW_DEFAULT_HZ;
 
   addr = EEPROM_ADDR_KEY;
   for (uint8_t i = 0; i < CRYPTO_KEY_LEN; i++) NETWORK_KEY[i] = EEPROM.read(addr++);

@@ -12,8 +12,7 @@
 #define LORA_DIO0  26
 
 // ---------- LoRa радио параметри ----------
-#define LORA_BANDWIDTH_HZ   125E3
-#define LORA_SF             7
+// SF и BW НЕ са константи - идват от NVS (LORA_SF/LORA_BW_HZ в config_storage.h)
 #define LORA_CR_DENOM       5
 #define LORA_TX_POWER_DBM   17
 #define LORA_PREAMBLE_LEN   8
@@ -27,7 +26,7 @@
 #define STATUS_TIMEOUT 1
 #define STATUS_NACK    2
 
-#define ACK_TIMEOUT_MS  4000UL
+// ACK timeout-ите не са константи - изчисляват се от SF/BW (radioAckTimeoutCmdMs() и др. в radio_timing.h)
 #define MAX_RETRIES     2
 
 #define LORA_BEGIN_RETRY_MSG_MS  10000UL   // интервал между диагностични съобщения при неуспешен LoRa.begin()

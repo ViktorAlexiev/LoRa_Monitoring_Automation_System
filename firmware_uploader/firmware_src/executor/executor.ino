@@ -21,7 +21,10 @@ void setup() {
   radio_setup();
   enablePinChangeWake();
   wdt_arm_8s_continuous();
-  Serial.print(F("Executor modul готов, M_ID=")); Serial.println(MY_M_ID);
+  Serial.print(F("Executor modul готов, M_ID=")); Serial.print(MY_M_ID);
+  Serial.print(F(" freq=")); Serial.print(LORA_FREQ_HZ);
+  Serial.print(F(" sf=")); Serial.print(LORA_SF);
+  Serial.print(F(" bw=")); Serial.println(LORA_BW_HZ);
 
   // Специален state response веднага след boot - маркира началото на живота на този
   // firmware инстанс (консуматорите бяха принудително изключени по-горе). Gateway трябва
@@ -35,8 +38,10 @@ void loop() {
   ackManager();
   heartbeat_tick();
   restartRespManager();
+  radioTxTick();   // неблокиращ достъп до канала + изпращане на чакащия пакет
 
-  if (ackCount == 0 && rxCount == 0 && !heartbeat_pending() && !restart_response_pending()) {
+  if (ackCount == 0 && rxCount == 0 && !heartbeat_pending() && !restart_response_pending() &&
+      !radio_tx_busy()) {
     deep_sleep_until_event();
   }
 }

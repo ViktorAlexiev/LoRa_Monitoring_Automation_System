@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include "crypto_common.h"
 #include "ceiling_counter.h"
+#include "radio_timing.h"
 
 #define EEPROM_ADDR_MODULE_ID  0
 #define MODULE_ID_LEN           6
@@ -11,6 +12,8 @@
 #define EEPROM_ADDR_FREQUENCY_TX  71  // 4 bytes (uint32_t) - TX честота (към Gateway), от config_avr.ino
 #define EEPROM_ADDR_KEY           75  // 16 bytes - AES мрежов ключ, от config_avr.ino
 #define EEPROM_ADDR_CEILING       91  // 4 bytes - nonce ceiling за собствения HB поток
+#define EEPROM_ADDR_SF            95  // 1 byte - Spreading Factor (7..12), от config_avr.ino; 0xFF/невалиден -> default
+#define EEPROM_ADDR_BW_IDX        96  // 1 byte - индекс на BW: 0=62.5k, 1=125k, 2=250k; 0xFF/невалиден -> default
 
 // Default честоти - fallback ако EEPROM е неинициализиран (0 или 0xFFFFFFFF)
 #define LORA_FREQ_RX_DEFAULT_HZ  434000000UL
@@ -19,6 +22,8 @@
 extern char REPEATER_ID[MODULE_ID_LEN + 1];
 extern uint32_t LORA_FREQ_RX_HZ;
 extern uint32_t LORA_FREQ_TX_HZ;
+extern uint8_t  LORA_SF;
+extern uint32_t LORA_BW_HZ;
 extern uint8_t NETWORK_KEY[CRYPTO_KEY_LEN];
 extern CeilingCounter hbCounter;
 

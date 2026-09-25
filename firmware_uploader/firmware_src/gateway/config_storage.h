@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include "crypto_common.h"
+#include "radio_timing.h"
 
 #define MODULE_ID_LEN       6
 #define WIFI_SSID_LEN        32
@@ -20,6 +21,8 @@ extern uint16_t MQTT_PORT_VAL;
 extern char MQTT_USER_BUF[MQTT_USER_LEN + 1];
 extern char MQTT_PASSWORD_BUF[MQTT_PASSWORD_LEN + 1];
 extern uint32_t LORA_FREQ_HZ;
+extern uint8_t  LORA_SF;       // NVS "sf"  (7..12), default 7
+extern uint32_t LORA_BW_HZ;    // NVS "bw"  (Hz: 62500/125000/250000), default 125000
 extern uint8_t NETWORK_KEY[CRYPTO_KEY_LEN];
 
 void loadConfigFromNvs();

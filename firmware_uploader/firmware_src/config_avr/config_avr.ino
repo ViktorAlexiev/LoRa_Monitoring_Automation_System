@@ -46,6 +46,9 @@
 #define EEPROM_ADDR_FREQUENCY_TX   71  // 4 bytes (uint32_t) - само за repeater: TX честотата (към Gateway)
 #define EEPROM_ADDR_KEY            75  // 16 bytes - AES-128 мрежов ключ (споделен, hardcoded в апа)
 #define KEY_LEN                    16
+#define EEPROM_ADDR_SF             95  // 1 byte - Spreading Factor (7..12), опционално поле "sf"
+#define EEPROM_ADDR_BW_IDX         96  // 1 byte - индекс на честотната лента: 0=62.5k, 1=125k, 2=250k
+                                        // (опционално поле "bw" в Hz: 62500/125000/250000)
 // EEPROM_ADDR_CEILING (адрес 91, 4 bytes) НЕ се пипа тук - управлява се изцяло от реалния
 // firmware (nonce counter watermark), config-firmware никога не го докосва, за да не
 // reuse-ва nonce след reconfigure на същото устройство. Общ поток за всичко, което
@@ -69,7 +72,7 @@ void handleConfigLine(char *json);
 void writeConfigToEeprom(const char *moduleId, uint8_t numConsumers,
                           char consumerIds[][CONSUMER_ID_LEN + 1],
                           char consumerPins[][PIN_LEN + 1], uint32_t freqHz, uint32_t freqTxHz,
-                          const uint8_t *keyBytes, bool hasKey);
+                          const uint8_t *keyBytes, bool hasKey, uint8_t sf, uint8_t bwIdx);
 bool extractStringField(const char *src, const char *key, char *out, uint8_t outLen);
 bool extractArrayField(const char *src, const char *key, const char **arrStart, const char **arrEnd);
 bool hexToBytes(const char *hex, uint8_t *out, uint8_t outLen);
@@ -200,8 +203,32 @@ void handleConfigLine(char *json) {
     hasKey = hexToBytes(keyStr, keyBytes, KEY_LEN);
   }
 
+  // sf / bw (опционални) - ако са подадени, но невалидни -> NACK (не се записва нищо)
+  uint8_t sf = 0;      // 0 = не е подаден
+  uint8_t bwIdx = 0xFF; // 0xFF = не е подаден
+  char sfStr[4];
+  if (extractStringField(json, "sf", sfStr, sizeof(sfStr))) {
+    long v = strtol(sfStr, NULL, 10);
+    if (v < 7 || v > 12) {
+      sendNack("невалиден sf (трябва 7..12)");
+      return;
+    }
+    sf = (uint8_t)v;
+  }
+  char bwStr[8];
+  if (extractStringField(json, "bw", bwStr, sizeof(bwStr))) {
+    unsigned long hz = strtoul(bwStr, NULL, 10);
+    if (hz == 62500UL) bwIdx = 0;
+    else if (hz == 125000UL) bwIdx = 1;
+    else if (hz == 250000UL) bwIdx = 2;
+    else {
+      sendNack("невалиден bw (трябва 62500, 125000 или 250000 Hz)");
+      return;
+    }
+  }
+
   writeConfigToEeprom(moduleId, numConsumers, consumerIds, consumerPins, freqHz, freqTxHz,
-                       keyBytes, hasKey);
+                       keyBytes, hasKey, sf, bwIdx);
   sendAck();
 }
 
@@ -211,7 +238,7 @@ void handleConfigLine(char *json) {
 void writeConfigToEeprom(const char *moduleId, uint8_t numConsumers,
                           char consumerIds[][CONSUMER_ID_LEN + 1],
                           char consumerPins[][PIN_LEN + 1], uint32_t freqHz, uint32_t freqTxHz,
-                          const uint8_t *keyBytes, bool hasKey) {
+                          const uint8_t *keyBytes, bool hasKey, uint8_t sf, uint8_t bwIdx) {
   int addr = EEPROM_ADDR_MODULE_ID;
 
   // 1. Module ID (6 bytes, null-padded), byte по byte
@@ -254,6 +281,14 @@ void writeConfigToEeprom(const char *moduleId, uint8_t numConsumers,
   }
   if (freqTxHz != 0) {
     EEPROM.put(EEPROM_ADDR_FREQUENCY_TX, freqTxHz);
+  }
+
+  // 4б. SF / BW - пишат се само ако са подадени (същия pattern като честотата)
+  if (sf != 0) {
+    EEPROM.update(EEPROM_ADDR_SF, sf);
+  }
+  if (bwIdx != 0xFF) {
+    EEPROM.update(EEPROM_ADDR_BW_IDX, bwIdx);
   }
 
   // 5. Мрежов ключ - пише се само ако е подаден валиден hex низ; иначе старата

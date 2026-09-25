@@ -259,34 +259,101 @@ consumer ID-та "B1C2"/"D4E5" са смесен формат (буква-циф
 
 ---
 
-## Бъдещи архитектурни задачи (не за сега — само записани за по-късно)
+## 14. SF/BW като централна настройка (uploader → EEPROM/NVS → firmware)
 
-Обсъдени, но нищо от тях не е приложено в кода. Записани тук, за да не се изгубят.
+**Статус:** приложено (firmware + uploader + тестове). Библиотеките на тази машина не са
+компилирани с `arduino-cli` (виж бележката най-долу) — проверено с native тестове и syntax check.
 
-- **SF/BW като централна настройка**, аналогично на честотите — една стойност за цялата мрежа
-  (не per-device), приложена през същия CFG механизъм. Смяна изисква пре-конфигуриране на
-  всички устройства, иначе тихо спират да се чуват.
-- **`CAD_TIMEOUT_MS` да се мащабира автоматично от SF** вместо да е фиксирана константа (10 ms),
-  щом SF стане runtime настройка — иначе по-висок SF тихо чупи CAD (виж по-раншния разговор:
-  на SF11/12 текущите 10 ms са под времетраенето дори на един символ).
-- **`ACK_TIMEOUT_MS`/`STATE_RESP_ACK_TIMEOUT_MS` (в момента 4000 ms фиксирани) — да се провери
-  дали и те трябва да се мащабират със SF.** Не е потвърдено нужно, но airtime на worst-case
-  пакет расте драстично с SF (118 ms на SF7 → ~2.8 s на SF12), а luфтът до 4-секундния timeout
-  се стеснява съответно — за проверка преди SF да стане конфигурируем.
-- **LDRO (Low Data Rate Optimization) — да се провери дали патчнатата `LoRa` библиотека я
-  задава автоматично** при `setSpreadingFactor(11)`/`(12)`, или трябва ръчно управление на
-  `RegModemConfig3` (`0x26`, бит 3). Без нея SF11/12 биха работили ненадеждно, не просто по-бавно.
-- **Repeater chaining схема (multi-hop, повече от 1 Repeater по веригата)** — текущият дизайн
-  поддържа точно 1 хоп (`REPEATED_MARKER` е булев флаг, не brojach; честотният план е бинарен —
-  RX/TX двойка, не поредица от нива). Обсъдени два подхода:
-  - **А) Flood + TTL на споделена честота** — маркерът става hop-brojach вместо флаг; изисква
-    dedup да сравнява съдържанието без hop байта (аналогично на вече поправения проблем с
-    Gateway dedup и `REPEATED_MARKER`); риск от broadcast storm при припокриващо покритие.
-  - **Б) Отделна честота на хоп** — физически изключва loop-ове, но всеки Repeater трябва да
-    "знае" нивото си и Settings/uploader-ът трябва да управлява N честотни двойки вместо една.
-  - Странични теми за преразглеждане заедно с chaining: HB диагностика по позиция в
-    веригата (в момента Repeater HB не носи hop номер), backoff/CAD мащабиране с дължината на
-    веригата, енергиен бюджет на допълнителните Repeater-и.
+- `config.ini [lora]`: `sf` (7–12), `bw_khz` (62.5 / 125 / 250), еднакви за цялата мрежа.
+  Settings таб: комбобокси за SF и BW; валидация; предупредителен диалог при смяна (засяга
+  всички устройства — нужен е нов config + firmware upload на всяко).
+- CFG пакетът носи `sf` и `bw` (Hz) за ВСИЧКИ типове устройства, вкл. Gateway.
+- Съхранение: AVR EEPROM адрес **95 = SF**, **96 = BW индекс** (0 = 62.5k, 1 = 125k, 2 = 250k);
+  празна (0xFF)/невалидна стойност → фабрична SF7/125 kHz. Gateway NVS (namespace `cfg`):
+  `sf` (UChar), `bw` (ULong, Hz).
+- `config_avr.ino` / `config_esp32.ino`: парсват и валидират `sf`/`bw` (NACK при невалидни);
+  ако липсват в пакета, старите стойности в EEPROM/NVS не се пипат.
+- Премахнати фиксираните макроси `LORA_SF` / `LORA_BANDWIDTH_HZ` от `radio_tx.h`,
+  `radio_io.h` (executor, repeater), `lora_handlers.h`; заменени с глобалите `LORA_SF`,
+  `LORA_BW_HZ`, прочетени от `config_storage`.
+- **LDRO:** библиотеката LoRa 0.8.0 (`setLdoFlag`) съкращава при SF11/BW125, затова
+  `radioApplyModemSettings()` (`cad.cpp`) задава `RegModemConfig3` (0x26) бит 3 изрично
+  (LDRO при Ts > 16 ms) след SF/BW/CR/preamble.
+
+## 15. Всички времена се извеждат от един модул `radio_timing`
+
+**Статус:** приложено; покрито с `test_radio_timing` (9216 комбинации срещу независима формула).
+
+Нов модул `radio_timing.h/.cpp` (идентично копие във sensor/, executor/, repeater/, gateway/):
+Time-on-Air по Semtech AN1200.13 в целочислена аритметика, символно време, LDRO. Всичко
+производно от SF/BW, **без фиксирани стойности и без 4000 ms праг:**
+
+| Величина | Формула |
+|---|---|
+| CAD timeout | 2×(2^SF+32)/BW + 5 ms |
+| CAD стъпка | max(CAD timeout, 4×Ts) |
+| Sensing прозорец (команди) | toa(64 B) |
+| Чакане при телеметрия | toa(30 B) |
+| Слот (backoff) | стъпката |
+| ACK timeout на команда | 1.5×(toa26 + 500 + toa20) + 2×toa64 |
+| ACK timeout на restart отговор | 1.5×(toa64 + 200 + toa20) + 2×toa64 |
+| Timeout на state request | 1.5×(toa20 + 200 + toa64) + 2×toa64 |
+
+`ACK_TIMEOUT_MS`, `CAD_TIMEOUT_MS`, `STATE_RESP_ACK_TIMEOUT_MS` са премахнати; те и всички
+съответни повторения използват функциите `radioAckTimeout*Ms()`.
+(Изпълнява бившите задачи „CAD_TIMEOUT да се мащабира със SF“ и „ACK timeout със SF“.)
+
+## 16. Неблокиращ достъп до канала (`channel_access`)
+
+**Статус:** приложено; 13 native теста (вкл. `millis()` wraparound), максимум един CAD на `poll`.
+
+Модул `channel_access.h/.cpp` — автомат със инжектирани CAD/random функции (тестваем):
+
+- **Команден път** (Gateway команда / state request / state-resp ACK; Executor ACK/NACK,
+  state response, restart response): първи CAD веднага. Ако е зает → неблокиращо наблюдение
+  (един CAD на стъпка, докато мине прозорецът toa(64)); после случаен backoff 0–3 слота и
+  краен CAD; при изтичане — отказ (по-горният слой повтаря).
+- **Телеметрия** (Sensor, HB, препращания на Repeater): CAD; ако е зает — едно случайно
+  чакане ≤ toa(30) и втори CAD; още зает → `FORCE` (Sensor/препращане предава въпреки това)
+  или `SKIP` (HB се пропуска).
+- Gateway: опашка за изпращане с 4 места (`gwTxEnqueue`/`gwTxTick`), извиквана първа в
+  `lora_managers_tick()`; `waitForClearChannel` премахната.
+- Executor: единичен TX слот (ACK / STATE_RESP / RESTART_RESP / HB), тикан от `radioTxTick()`
+  в `loop()`; sleep се разрешава само при `!radio_tx_busy()`.
+- Repeater: един собственик на достъпа (препращане или HB), CAD се прави на TX честотата;
+  `enter_rx_mode()` само след като CAD реално е пуснат.
+- `cad.cpp`: `channelActive()` ползва `radioCadTimeoutMs()`.
+
+## 17. Ленти (lanes) и верига от Repeater-и (само uplink); премахнат маркерът 0xD1
+
+**Статус:** приложено (firmware + uploader).
+
+- **Модел:** лента 0 = Gateway (на нея слушат Gateway и Executor-и), лента 1 = първо ниво
+  Sensor→Repeater, лента 2… = следващи нива (`extra_lanes_mhz`). Repeater с входна лента K
+  слуша на K и предава на K−1. Sensor избира лента; Executor/Gateway ползват лента 0.
+  Разстояние между ленти ≥ 2×BW (при BW 125 kHz ≥ 0.25 MHz; препоръчително ~0.5 MHz),
+  най-много 6 ленти, валидни EU честоти, без повторения.
+- **Firmware:** `REPEATED_MARKER` (0xD1) премахнат — Repeater само dedup-ва и препраща на
+  другата честота, Gateway приема само 30-байтови сензорни пакети (`len == SENSOR_WIRE_LEN`).
+  Гарантира приключване на веригата, защото няма честотен цикъл (uplink-only).
+- **Uploader:** `validation.py` — `validate_lora_sf`, `validate_lora_bw_khz`,
+  `parse_extra_lanes`, `validate_lora_lanes`; `main.py` — Sensor избира лента, Repeater —
+  входна лента (RX = лента K, TX = K−1, записани в EEPROM 67 / 71), инфо ред със SF/BW,
+  Settings: допълнителни ленти, SF, BW + валидация и предупреждение. Регистърът/логът записват
+  `lane`, `freq_hz`, `sf`, `bw_hz`.
+- Приетият риск „0xD1 колизия с CMAC“ **отпада** (маркерът не съществува).
+
+## Тестове и проверки (по този етап)
+
+`firmware_uploader/tests/`: native C++ (`run_all.sh`) — crypto, ceiling, queues, consumers,
+dedup, config_storage ×3, sensors_io, radio_timing, channel_access, length dispatch; python
+(`unittest`, 67 теста за `validation.py`); `syntax_check_radio.sh` — g++ `-fsyntax-only` на
+`radio_tx.cpp`, `radio_io.cpp` ×2, `lora_handlers.cpp`. Всички минават.
+
+**Бележка (тази машина):** инсталираните копия на LoRa нямат публичните `readRegister`/
+`writeRegister` (нужни за CAD), а Crypto/AES_CMAC не са намерени; ArduinoJson е 7.x, а
+Gateway ползва v6 API. Библиотеките ще се оправят на лаптопа; после — реален
+`arduino-cli compile` на всички скечове.
 
 ---
 
@@ -299,9 +366,6 @@ consumer ID-та "B1C2"/"D4E5" са смесен формат (буква-циф
   подателя нараства.
 - **Нулиране на `cmdceil`** (nonce брояч на командите на Gateway) при пре-конфигуриране, заради
   начина по който `config_esp32.bin` (4 MB merged образ) презаписва NVS зоната.
-- **Маркерът `REPEATED_MARKER` (0xD1)** може случайно да съвпадне с последния байт на CMAC
-  tag-а на непрепратен пакет (~1/256 вероятност) — Repeater би го отхвърлил, мислейки го за
-  вече препратен. Засяга само пътя Sensor→Repeater→Gateway.
 - **Кратък MAC (4 от 16 байта AES-CMAC)** и `memcmp` без постоянно време при проверка.
 - **Единен споделен мрежов ключ** за цялата мрежа — компрометиране на едно устройство
   компрометира цялата система.

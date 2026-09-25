@@ -28,7 +28,7 @@
 // ---------------- Gateway: коя грана на lora_handle_incoming() хваща дадена дължина ----------------
 // Възпроизвежда точния ред на проверките от gateway/lora_handlers.cpp.
 static std::string gatewayBranchFor(int len) {
-  if (len == SENSOR_WIRE_LEN || len == SENSOR_WIRE_LEN + 1) return "SENSOR";
+  if (len == SENSOR_WIRE_LEN) return "SENSOR";   // вече без +1: Repeater не добавя маркер
   if (len == ACK_WIRE_LEN) return "ACK";
   if (len == HB_WIRE_LEN) return "HB_OR_STATE0"; // пробва REPEATER_HB,EXEC_HB,STATE_RESP,STATE_RESP_RESTART
   if (len > CRYPTO_OVERHEAD && (len - CRYPTO_OVERHEAD) % STATE_ENTRY_LEN == 0 &&
@@ -47,7 +47,6 @@ TEST(gateway_every_legit_packet_length_maps_to_exactly_one_branch) {
   // Всички дължини, които РЕАЛНО могат да пристигнат на Gateway според протокола:
   std::map<int, std::string> legit = {
     {SENSOR_WIRE_LEN,                         "SENSOR"},
-    {SENSOR_WIRE_LEN + 1,                     "SENSOR"},        // препратено от Repeater
     {ACK_WIRE_LEN,                            "ACK"},
     {HB_WIRE_LEN,                             "HB_OR_STATE0"},  // Repeater HB / Executor HB / state resp с 0 консуматора
   };
@@ -67,7 +66,7 @@ TEST(gateway_every_legit_packet_length_maps_to_exactly_one_branch) {
 TEST(gateway_no_two_different_legit_lengths_collide_on_wrong_branch) {
   // Обхожда ВСИЧКИ дължини от 0 до 100 байта (далеч отвъд реалния максимум) и проверява,
   // че освен изброените "легитимни" дължини, нищо друго случайно не пада в познат клон.
-  std::set<int> legitLens = {SENSOR_WIRE_LEN, SENSOR_WIRE_LEN + 1, ACK_WIRE_LEN, HB_WIRE_LEN};
+  std::set<int> legitLens = {SENSOR_WIRE_LEN, ACK_WIRE_LEN, HB_WIRE_LEN};
   for (int n = 1; n <= STATE_MAX_CONSUMERS; n++) legitLens.insert(CRYPTO_OVERHEAD + n * STATE_ENTRY_LEN);
 
   int unexpectedMatches = 0;

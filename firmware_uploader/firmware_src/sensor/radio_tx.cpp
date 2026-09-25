@@ -4,8 +4,13 @@
 #include "config_storage.h"
 #include "crypto_common.h"
 #include "cad.h"
+#include "channel_access.h"
+#include "radio_timing.h"
 
 void lora_init() {
+  // времената (CAD, изчакване) се извеждат от SF/BW, прочетени от EEPROM
+  radioTimingInit(LORA_SF, LORA_BW_HZ, LORA_CR_DENOM, LORA_PREAMBLE_LEN, true);
+
   LoRa.setPins(LORA_NSS, LORA_RST, LORA_DIO0);
 
   // честотата вече идва от EEPROM (config пакет), не hardcoded. Ако модулът не отговори,
@@ -19,11 +24,8 @@ void lora_init() {
     }
   }
 
-  LoRa.setSpreadingFactor(LORA_SF);
-  LoRa.setSignalBandwidth(LORA_BANDWIDTH_HZ);
-  LoRa.setCodingRate4(LORA_CR_DENOM);
+  radioApplyModemSettings();   // SF, BW, CR, преамбюл + LDRO (по реалното Ts)
   LoRa.setTxPower(LORA_TX_POWER_DBM);
-  LoRa.setPreambleLength(LORA_PREAMBLE_LEN);
   LoRa.setSyncWord(LORA_SYNC_WORD);
   LoRa.enableCrc();
 }
@@ -58,13 +60,13 @@ void send_sensor_packet(float s_t, float s_h, float a_t, float a_h) {
                                            (const uint8_t*)SENSOR_ID, txCounter.next(),
                                            (const uint8_t*)&pkt, sizeof(pkt));
 
-  // CAD преди TX - проверка дали каналът е свободен точно сега. Ако е зает, изчакваме
-  // кратко и опитваме пак (по-добре кратка загуба на време, отколкото колизия и изгубено
-  // измерване); ограничен брой опити, за да не задържим устройството будно неопределено.
-  uint8_t cadAttempts = 0;
-  while (channelActive() && cadAttempts < 5) {
-    delay(random(5, 20));
-    cadAttempts++;
+  // Listen-before-talk (телеметрия, FORCE): един CAD; ако е зает - ЕДНО случайно изчакване до
+  // airtime на пакет и втори CAD; ако пак е зает, предава въпреки това (едно измерване е
+  // по-ценно от чистия ефир). Sensor няма друга работа, затова тук блокираме (и после заспива).
+  ChannelAccess ca;
+  channelAccessStart(&ca, CH_POLICY_TELEMETRY_FORCE);
+  while (channelAccessPoll(&ca, millis(), channelActive, channelRandom) == CH_WAIT) {
+    delay(1);
   }
 
   LoRa.beginPacket();

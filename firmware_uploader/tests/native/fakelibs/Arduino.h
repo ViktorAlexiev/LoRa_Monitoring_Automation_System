@@ -1,6 +1,7 @@
 // Минимален заместител на Arduino.h - само каквото реално се ползва от тестваните
 // .cpp файлове (crypto_common, ceiling_counter, queues, consumers, config_storage,
-// dedup, sensors_io). НЕ е пълна Arduino съвместимост - разширява се при нужда.
+// dedup, sensors_io, radio_timing, channel_access и радио-ниво файловете за syntax check).
+// НЕ е пълна Arduino съвместимост - разширява се при нужда.
 #ifndef FAKE_ARDUINO_H
 #define FAKE_ARDUINO_H
 
@@ -13,6 +14,10 @@
 using std::isnan; // Arduino.h дефинира isnan() глобално (макрос/функция); std::isnan е еквивалентно
 
 #define F(x) x
+typedef uint8_t byte;
+typedef bool boolean;
+#define HEX 16
+#define DEC 10
 #define PROGMEM
 
 // ---------------- Serial (пише в конзолата на теста, за видимост при дебъг) ----------------
@@ -20,15 +25,22 @@ class FakeSerial {
 public:
   void begin(long) {}
   void print(const char *s) { fputs(s, stdout); }
+  void print(char c) { putchar(c); }
   void print(int v, int base = 10) { if (base == 16) printf("%x", v); else printf("%d", v); }
   void print(unsigned int v, int base = 10) { if (base == 16) printf("%x", v); else printf("%u", v); }
   void print(long v) { printf("%ld", v); }
   void print(unsigned long v) { printf("%lu", v); }
   void print(float v) { printf("%f", v); }
+  void print(double v) { printf("%f", v); }
   void println() { printf("\n"); }
   void println(const char *s) { fputs(s, stdout); printf("\n"); }
+  void println(char c) { print(c); printf("\n"); }
   void println(int v, int base = 10) { print(v, base); printf("\n"); }
+  void println(unsigned int v, int base = 10) { print(v, base); printf("\n"); }
+  void println(long v) { print(v); printf("\n"); }
   void println(unsigned long v) { print(v); printf("\n"); }
+  void println(float v) { print(v); printf("\n"); }
+  void println(double v) { print(v); printf("\n"); }
   void flush() {}
 };
 extern FakeSerial Serial;
@@ -37,8 +49,8 @@ extern FakeSerial Serial;
 extern unsigned long g_fakeMillis;
 inline unsigned long millis() { return g_fakeMillis; }
 inline void delay(unsigned long) {}
-inline long random(long minV, long maxV) { return minV; } // детерминистично за тестове
-inline long random(long maxV) { return 0; }
+inline long random(long minV, long maxV) { (void)maxV; return minV; } // детерминистично за тестове
+inline long random(long maxV) { (void)maxV; return 0; }
 inline void randomSeed(unsigned long) {}
 
 // ---------------- digital I/O - фиктивни, само за да компилира ----------------

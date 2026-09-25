@@ -18,7 +18,9 @@ void setup() {
 
   Serial.print(F("Repeater modul готов, M_ID=")); Serial.print(REPEATER_ID);
   Serial.print(F(" RX_freq=")); Serial.print(LORA_FREQ_RX_HZ);
-  Serial.print(F(" TX_freq=")); Serial.println(LORA_FREQ_TX_HZ);
+  Serial.print(F(" TX_freq=")); Serial.print(LORA_FREQ_TX_HZ);
+  Serial.print(F(" sf=")); Serial.print(LORA_SF);
+  Serial.print(F(" bw=")); Serial.println(LORA_BW_HZ);
   Serial.flush();
 }
 

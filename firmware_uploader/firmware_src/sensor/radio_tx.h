@@ -7,8 +7,7 @@
 #define LORA_DIO0    2
 #define LORA_RST     9
 
-#define LORA_BANDWIDTH_HZ   125E3
-#define LORA_SF             7
+// SF и BW НЕ са константи - идват от EEPROM (LORA_SF/LORA_BW_HZ в config_storage.h)
 #define LORA_CR_DENOM       5
 #define LORA_TX_POWER_DBM   17
 #define LORA_PREAMBLE_LEN   8

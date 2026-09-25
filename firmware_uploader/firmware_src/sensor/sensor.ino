@@ -11,7 +11,9 @@ void setup() {
   randomSeed(micros());   // seed без зависимост от пин
   sensors_init();
   Serial.print(F("Sensor node ready (SHT31+SHT21), freq="));
-  Serial.println(LORA_FREQ_HZ);
+  Serial.print(LORA_FREQ_HZ);
+  Serial.print(F(" sf=")); Serial.print(LORA_SF);
+  Serial.print(F(" bw=")); Serial.println(LORA_BW_HZ);
   Serial.flush();
 }
 

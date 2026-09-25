@@ -24,7 +24,8 @@ from db import (init_db, add_log, get_all_logs, get_registry_entry, get_all_regi
 from validation import (validate_module_id, validate_consumers_detailed,
                         validate_wifi_ssid, validate_wifi_password, validate_mqtt_host,
                         validate_mqtt_port, validate_mqtt_user, validate_mqtt_password,
-                        validate_lora_frequency_mhz)
+                        validate_lora_frequency_mhz, validate_lora_sf, validate_lora_bw_khz,
+                        parse_extra_lanes, validate_lora_lanes)
 from device_ops import get_coordinates, upload_firmware_avr, upload_firmware_esp32, send_config_packet
 from network_key import NETWORK_KEY_HEX
 
@@ -340,35 +341,26 @@ class SimpleDeviceFrame(ttk.Frame):
             self.mqtt_password_error_label.grid(row=row, column=2, columnspan=2, sticky="w", padx=5)
             row += 1
 
-        # LoRa честота - идва от config.ini [lora] (Settings таб), не се редактира тук.
-        # Sensor избира МЕЖДУ двете (директно/repeater), Repeater/Gateway само показват
-        # honestно каква честота ще получат (RX/TX за Repeater, единствена за Gateway).
+        # LoRa настройки (ленти, SF, BW) - идват от config.ini [lora] (Settings таб), не се
+        # редактират тук. Sensor избира лентата, на която предава; Repeater избира входната си
+        # лента (RX) и предава на лентата с едно ниво по-близо до Gateway (само uplink).
         self.is_sensor = (self.device_type == "sensor")
         self.is_repeater = (self.device_type == "repeater")
         if self.is_sensor or self.is_repeater or self.is_gateway:
-            gw_hz, rp_hz = self.app.get_lora_frequencies_hz()
-            self.freq_gw_hz = gw_hz
-            self.freq_rp_hz = rp_hz
+            self._load_radio_settings()
 
-            if self.is_sensor:
-                ttk.Label(self, text="LoRa честота:").grid(row=row, column=0, sticky="w", padx=5, pady=5)
-                self.freq_choice_var = tk.StringVar(value="gateway")
-                freq_frame = ttk.Frame(self)
-                freq_frame.grid(row=row, column=1, columnspan=3, sticky="w")
-                self.freq_gw_radio = ttk.Radiobutton(
-                    freq_frame, value="gateway", variable=self.freq_choice_var,
-                    text=f"Директно до Gateway ({gw_hz / 1e6:g} MHz)")
-                self.freq_gw_radio.pack(anchor="w")
-                self.freq_rp_radio = ttk.Radiobutton(
-                    freq_frame, value="repeater", variable=self.freq_choice_var,
-                    text=f"През Repeater ({rp_hz / 1e6:g} MHz)")
-                self.freq_rp_radio.pack(anchor="w")
-            else:
-                text = (f"LoRa честота: RX {rp_hz / 1e6:g} MHz (от Sensor) / "
-                        f"TX {gw_hz / 1e6:g} MHz (към Gateway)") if self.is_repeater \
-                    else f"LoRa честота: {gw_hz / 1e6:g} MHz"
-                self.freq_info_label = ttk.Label(self, text=text)
-                self.freq_info_label.grid(row=row, column=0, columnspan=4, sticky="w", padx=5, pady=5)
+            if self.is_sensor or self.is_repeater:
+                ttk.Label(self, text="LoRa лента:" if self.is_sensor else "Входна лента (RX):").grid(
+                    row=row, column=0, sticky="w", padx=5, pady=5)
+                self.lane_var = tk.StringVar()
+                self.lane_combo = ttk.Combobox(self, textvariable=self.lane_var, state="readonly", width=52)
+                self.lane_combo.grid(row=row, column=1, columnspan=3, sticky="w")
+                self.lane_combo.bind("<<ComboboxSelected>>", lambda _e: self._update_freq_info())
+                row += 1
+
+            self.freq_info_label = ttk.Label(self, text="")
+            self.freq_info_label.grid(row=row, column=0, columnspan=4, sticky="w", padx=5, pady=5)
+            self._refresh_freq_display()
             row += 1
 
         ttk.Label(self, text="Latitude:").grid(row=row, column=0, sticky="w", padx=5)
@@ -427,20 +419,57 @@ class SimpleDeviceFrame(ttk.Frame):
             self.mqtt_user_error_label.config(text="")
             self.mqtt_password_error_label.config(text="")
 
+    def _load_radio_settings(self):
+        self.lanes_hz = self.app.get_lora_lanes_hz()
+        self.sf, self.bw_hz = self.app.get_lora_sf_bw()
+        self.freq_gw_hz = self.lanes_hz[0]
+        self.freq_rp_hz = self.lanes_hz[1]
+
+    def _lane_first_index(self):
+        # Sensor може да предава на всяка лента (0..N-1); Repeater - входна лента 1..N-1
+        return 0 if self.is_sensor else 1
+
+    def _lane_label(self, i):
+        mhz = self.lanes_hz[i] / 1e6
+        if i == 0:
+            return f"Лента 0 - Gateway ({mhz:g} MHz)"
+        return f"Лента {i} - {i}-во ниво преди Gateway ({mhz:g} MHz)"
+
+    def _selected_lane(self):
+        pos = self.lane_combo.current()
+        if pos < 0:
+            pos = 0
+        return self._lane_first_index() + pos
+
+    def _update_freq_info(self):
+        radio = f"SF{self.sf}, BW {self.bw_hz / 1000:g} kHz"
+        if self.is_sensor:
+            lane = self._selected_lane()
+            self.freq_info_label.config(
+                text=f"Предава на {self.lanes_hz[lane] / 1e6:g} MHz (лента {lane}); {radio}")
+        elif self.is_repeater:
+            k = self._selected_lane()
+            self.freq_info_label.config(
+                text=(f"RX {self.lanes_hz[k] / 1e6:g} MHz (лента {k}) -> TX "
+                      f"{self.lanes_hz[k - 1] / 1e6:g} MHz (лента {k - 1}); {radio}"))
+        else:
+            self.freq_info_label.config(text=f"LoRa: {self.freq_gw_hz / 1e6:g} MHz (лента 0); {radio}")
+
     def _refresh_freq_display(self):
         if not (self.is_sensor or self.is_repeater or self.is_gateway):
             return
-        gw_hz, rp_hz = self.app.get_lora_frequencies_hz()
-        self.freq_gw_hz = gw_hz
-        self.freq_rp_hz = rp_hz
-        if self.is_sensor:
-            self.freq_gw_radio.config(text=f"Директно до Gateway ({gw_hz / 1e6:g} MHz)")
-            self.freq_rp_radio.config(text=f"През Repeater ({rp_hz / 1e6:g} MHz)")
-        elif self.is_repeater:
-            self.freq_info_label.config(
-                text=f"LoRa честота: RX {rp_hz / 1e6:g} MHz (от Sensor) / TX {gw_hz / 1e6:g} MHz (към Gateway)")
-        else:
-            self.freq_info_label.config(text=f"LoRa честота: {gw_hz / 1e6:g} MHz")
+        prev_lane = None
+        if (self.is_sensor or self.is_repeater) and self.lane_var.get():
+            prev_lane = self._selected_lane()
+        self._load_radio_settings()
+        if self.is_sensor or self.is_repeater:
+            first = self._lane_first_index()
+            self.lane_combo["values"] = [self._lane_label(i) for i in range(first, len(self.lanes_hz))]
+            pos = 0
+            if prev_lane is not None and first <= prev_lane < len(self.lanes_hz):
+                pos = prev_lane - first
+            self.lane_combo.current(pos)
+        self._update_freq_info()
 
     def on_tab_selected(self):
         self._clear_messages()
@@ -535,7 +564,8 @@ class SimpleDeviceFrame(ttk.Frame):
             self.status_label.config(text=f"Грешка при upload на config-firmware: {out}", foreground="#DC2626")
             return
 
-        packet = {"id": module_id, "key": NETWORK_KEY_HEX}
+        packet = {"id": module_id, "key": NETWORK_KEY_HEX,
+                  "sf": str(self.sf), "bw": str(self.bw_hz)}   # SF/BW - еднакви за цялата мрежа
         if self.is_gateway:
             packet.update({
                 "wifi_ssid": wifi_ssid,
@@ -547,11 +577,12 @@ class SimpleDeviceFrame(ttk.Frame):
             })
             packet["freq"] = str(self.freq_gw_hz)
         if self.is_sensor:
-            freq_hz = self.freq_gw_hz if self.freq_choice_var.get() == "gateway" else self.freq_rp_hz
-            packet["freq"] = str(freq_hz)
+            lane = self._selected_lane()
+            packet["freq"] = str(self.lanes_hz[lane])
         if self.is_repeater:
-            packet["freq"] = str(self.freq_rp_hz)        # RX - идва от Sensor (EEPROM addr 67)
-            packet["freq_tx"] = str(self.freq_gw_hz)      # TX - към Gateway (EEPROM addr 71)
+            k = self._selected_lane()
+            packet["freq"] = str(self.lanes_hz[k])          # RX - входна лента (EEPROM addr 67)
+            packet["freq_tx"] = str(self.lanes_hz[k - 1])   # TX - лента по-близо до Gateway (EEPROM addr 71)
         cfg_baud_key = "baud_config_esp32" if self.is_esp32 else "baud_config_avr"
         ok, msg2 = send_config_packet(port, int(self.app.cfg["serial"][cfg_baud_key]), packet,
                                        timeout=int(self.app.cfg["serial"]["config_timeout"]),
@@ -585,12 +616,13 @@ class SimpleDeviceFrame(ttk.Frame):
                 "freq_hz": self.freq_gw_hz,
             }
         if self.is_sensor:
-            gw_params = {
-                "freq_choice": self.freq_choice_var.get(),
-                "freq_hz": self.freq_gw_hz if self.freq_choice_var.get() == "gateway" else self.freq_rp_hz,
-            }
+            lane = self._selected_lane()
+            gw_params = {"lane": lane, "freq_hz": self.lanes_hz[lane]}
         if self.is_repeater:
-            gw_params = {"freq_rx_hz": self.freq_rp_hz, "freq_tx_hz": self.freq_gw_hz}
+            k = self._selected_lane()
+            gw_params = {"lane_rx": k, "freq_rx_hz": self.lanes_hz[k], "freq_tx_hz": self.lanes_hz[k - 1]}
+        gw_params["sf"] = self.sf
+        gw_params["bw_hz"] = self.bw_hz
         upsert_registry(self.app.db_path, module_id, self.device_type, gw_params, lat, lon)
         add_log(self.app.db_path, self.device_type, module_id, gw_params, lat, lon, action="upload")
         self.status_label.config(text="Успешно качено!", foreground="#16A34A")
@@ -789,8 +821,9 @@ class ExecutorFrame(ttk.Frame):
             self.status_label.config(text=f"Грешка при upload на config-firmware: {out}", foreground="#DC2626")
             return
 
+        sf, bw_hz = self.app.get_lora_sf_bw()
         packet = {"id": module_id, "consumers": consumers, "freq": str(self.freq_gw_hz),
-                  "key": NETWORK_KEY_HEX}
+                  "key": NETWORK_KEY_HEX, "sf": str(sf), "bw": str(bw_hz)}
         ok, msg2 = send_config_packet(port, int(self.app.cfg["serial"]["baud_config_avr"]), packet,
                                        timeout=int(self.app.cfg["serial"]["config_timeout"]))
         if not ok:
@@ -803,7 +836,7 @@ class ExecutorFrame(ttk.Frame):
             self.status_label.config(text=f"Грешка при upload на executor firmware: {out}", foreground="#DC2626")
             return
 
-        params = {"consumers": consumers, "freq_hz": self.freq_gw_hz}
+        params = {"consumers": consumers, "freq_hz": self.freq_gw_hz, "sf": sf, "bw_hz": bw_hz}
         upsert_registry(self.app.db_path, module_id, "executor", params, lat, lon)
         add_log(self.app.db_path, "executor", module_id, params, lat, lon, action="upload")
         self.status_label.config(text="Успешно качено!", foreground="#16A34A")
@@ -1209,6 +1242,34 @@ class SettingsFrame(ttk.Frame):
         self.freq_repeater_error_label = ttk.Label(freq_frame, text="", foreground="#DC2626", wraplength=350, justify="left")
         self.freq_repeater_error_label.grid(row=1, column=2, sticky="w", padx=5, pady=(5, 0))
 
+        ttk.Label(freq_frame, text="Допълнителни ленти 2,3,... (верига от Repeater-и, comma separated):").grid(
+            row=2, column=0, sticky="w", pady=(5, 0))
+        self.extra_lanes_var = tk.StringVar(value=self.app.cfg["lora"].get("extra_lanes_mhz", ""))
+        ttk.Entry(freq_frame, textvariable=self.extra_lanes_var, width=24).grid(
+            row=2, column=1, sticky="w", padx=5, pady=(5, 0))
+        self.extra_lanes_error_label = ttk.Label(freq_frame, text="", foreground="#DC2626", wraplength=350, justify="left")
+        self.extra_lanes_error_label.grid(row=2, column=2, sticky="w", padx=5, pady=(5, 0))
+
+        ttk.Label(freq_frame, text="Spreading Factor (SF, 7-12) - за цялата мрежа:").grid(
+            row=3, column=0, sticky="w", pady=(10, 0))
+        self.sf_var = tk.StringVar(value=self.app.cfg["lora"].get("sf", "7"))
+        ttk.Combobox(freq_frame, textvariable=self.sf_var, values=[str(i) for i in range(7, 13)],
+                     state="readonly", width=8).grid(row=3, column=1, sticky="w", padx=5, pady=(10, 0))
+
+        ttk.Label(freq_frame, text="Честотна лента (BW, kHz) - за цялата мрежа:").grid(
+            row=4, column=0, sticky="w", pady=(5, 0))
+        self.bw_var = tk.StringVar(value=self.app.cfg["lora"].get("bw_khz", "125"))
+        ttk.Combobox(freq_frame, textvariable=self.bw_var, values=["62.5", "125", "250"],
+                     state="readonly", width=8).grid(row=4, column=1, sticky="w", padx=5, pady=(5, 0))
+        self.radio_error_label = ttk.Label(freq_frame, text="", foreground="#DC2626", wraplength=350, justify="left")
+        self.radio_error_label.grid(row=4, column=2, sticky="w", padx=5, pady=(5, 0))
+
+        ttk.Label(self, text=("Ленти: лента 0 = Gateway, лента 1 = първо ниво Sensor -> Repeater, лента 2 = "
+                               "следващо ниво и т.н. Repeater-ът е само uplink: слуша на лента K и предава на "
+                               "лента K-1. Разстоянието между ленти трябва да е поне 2 x BW (напр. 0.25 MHz при "
+                               "125 kHz). Нисък SF = по-бързо и по-малко ефирно време; висок SF = по-голям обхват."),
+                  foreground="#57544C", wraplength=550, justify="left").pack(anchor="w", padx=5, pady=(5, 0))
+
         ttk.Label(self, text=("EU LoRa диапазони: 433-434.79 MHz или 863-870 MHz. За междинна честота "
                                "ползвай десетична точка (напр. 433.5), не слепени цифри (напр. 4335)."),
                   foreground="#57544C", wraplength=550, justify="left").pack(anchor="w", padx=5)
@@ -1236,15 +1297,25 @@ class SettingsFrame(ttk.Frame):
     def save(self):
         self.freq_gateway_error_label.config(text="")
         self.freq_repeater_error_label.config(text="")
+        self.extra_lanes_error_label.config(text="")
+        self.radio_error_label.config(text="")
 
-        prev_gateway = self.app.cfg["lora"]["freq_gateway_mhz"]
-        prev_repeater = self.app.cfg["lora"]["freq_repeater_mhz"]
+        lora = self.app.cfg["lora"]
+        prev = {
+            "gw": lora.get("freq_gateway_mhz", "433"),
+            "rp": lora.get("freq_repeater_mhz", "434"),
+            "extra": lora.get("extra_lanes_mhz", ""),
+            "sf": lora.get("sf", "7"),
+            "bw": lora.get("bw_khz", "125"),
+        }
         gw_str = self.freq_gateway_var.get().strip()
         rp_str = self.freq_repeater_var.get().strip()
-        freq_changed = (gw_str != prev_gateway) or (rp_str != prev_repeater)
+        extra_str = self.extra_lanes_var.get().strip()
 
         ok_gw, gw_mhz, msg_gw = validate_lora_frequency_mhz(gw_str)
         ok_rp, rp_mhz, msg_rp = validate_lora_frequency_mhz(rp_str)
+        ok_sf, sf, msg_sf = validate_lora_sf(self.sf_var.get())
+        ok_bw, bw_hz, msg_bw = validate_lora_bw_khz(self.bw_var.get())
         has_errors = False
         if not ok_gw:
             self.freq_gateway_error_label.config(text=msg_gw)
@@ -1252,32 +1323,60 @@ class SettingsFrame(ttk.Frame):
         if not ok_rp:
             self.freq_repeater_error_label.config(text=msg_rp)
             has_errors = True
+        if not (ok_sf and ok_bw):
+            self.radio_error_label.config(text=msg_sf if not ok_sf else msg_bw)
+            has_errors = True
+
+        lanes_mhz = None
+        if not has_errors:
+            lane_strings = [f"{gw_mhz:g}", f"{rp_mhz:g}"] + parse_extra_lanes(extra_str)
+            ok_l, lanes_mhz, msg_l = validate_lora_lanes(lane_strings, bw_hz)
+            if not ok_l:
+                self.extra_lanes_error_label.config(text=msg_l)
+                has_errors = True
         if has_errors:
-            self.status_label.config(text="Има грешки в честотите - виж маркираните полета по-горе.", foreground="#DC2626")
+            self.status_label.config(text="Има грешки в радио настройките - виж маркираните полета по-горе.",
+                                      foreground="#DC2626")
             return
 
-        if freq_changed:
+        new = {
+            "gw": f"{gw_mhz:g}",
+            "rp": f"{rp_mhz:g}",
+            "extra": ",".join(f"{m:g}" for m in lanes_mhz[2:]),
+            "sf": str(sf),
+            "bw": f"{bw_hz / 1000:g}",
+        }
+        radio_changed = any(new[k] != prev[k] for k in new)
+
+        if radio_changed:
+            lane_lines = "\n".join(f"  лента {i}: {m:g} MHz" for i, m in enumerate(lanes_mhz))
             confirmed = messagebox.askyesno(
-                "Смяна на LoRa честота",
-                "Смяната на честотата засяга ЦЯЛАТА система - всички Sensor, Executor, Repeater и "
+                "Смяна на радио настройките",
+                "Смяната на ленти, SF или BW засяга ЦЯЛАТА система - всички Sensor, Executor, Repeater и "
                 "Gateway устройства трябва да бъдат преконфигурирани (нов config + firmware upload) "
-                "със същите нови честоти, иначе няма да могат да комуникират помежду си.\n\n"
-                f"Честота до Gateway: {gw_mhz:g} MHz\n"
-                f"Честота Sensor -> Repeater: {rp_mhz:g} MHz\n\n"
+                "със същите нови настройки, иначе няма да могат да комуникират помежду си.\n\n"
+                f"{lane_lines}\n"
+                f"SF{sf}, BW {bw_hz / 1000:g} kHz\n\n"
                 "Наистина ли искаш да продължиш?"
             )
             if not confirmed:
-                self.freq_gateway_var.set(prev_gateway)
-                self.freq_repeater_var.set(prev_repeater)
+                self.freq_gateway_var.set(prev["gw"])
+                self.freq_repeater_var.set(prev["rp"])
+                self.extra_lanes_var.set(prev["extra"])
+                self.sf_var.set(prev["sf"])
+                self.bw_var.set(prev["bw"])
                 self.app.cfg["reserved_pins"]["pins"] = self.reserved_var.get()
                 self._write_config()
-                self.status_label.config(text="Отказано - честотите са върнати към старите стойности.",
+                self.status_label.config(text="Отказано - радио настройките са върнати към старите стойности.",
                                           foreground="#D97706")
                 return
 
         self.app.cfg["reserved_pins"]["pins"] = self.reserved_var.get()
-        self.app.cfg["lora"]["freq_gateway_mhz"] = f"{gw_mhz:g}"
-        self.app.cfg["lora"]["freq_repeater_mhz"] = f"{rp_mhz:g}"
+        lora["freq_gateway_mhz"] = new["gw"]
+        lora["freq_repeater_mhz"] = new["rp"]
+        lora["extra_lanes_mhz"] = new["extra"]
+        lora["sf"] = new["sf"]
+        lora["bw_khz"] = new["bw"]
         self._write_config()
         self.status_label.config(text="Записано.", foreground="#16A34A")
 
@@ -1441,12 +1540,25 @@ class App:
         raw = self.cfg["reserved_pins"].get("pins", "")
         return set(p.strip().upper() for p in raw.split(",") if p.strip())
 
-    def get_lora_frequencies_hz(self):
-        """Чете текущите LoRa честоти от config.ini [lora] (MHz) и ги връща в Hz.
+    def get_lora_lanes_hz(self):
+        """Ленти (lanes) в Hz: [лента 0 = Gateway, лента 1, лента 2, ...] от config.ini [lora].
         Извиква се наново при всяко влизане в таб, за да хване промени от Settings."""
-        gw_mhz = float(self.cfg["lora"]["freq_gateway_mhz"])
-        rp_mhz = float(self.cfg["lora"]["freq_repeater_mhz"])
-        return int(round(gw_mhz * 1e6)), int(round(rp_mhz * 1e6))
+        lora = self.cfg["lora"]
+        lanes = [float(lora["freq_gateway_mhz"]), float(lora["freq_repeater_mhz"])]
+        lanes += [float(x) for x in parse_extra_lanes(lora.get("extra_lanes_mhz", ""))]
+        return [int(round(m * 1e6)) for m in lanes]
+
+    def get_lora_sf_bw(self):
+        """(SF, BW в Hz) от config.ini [lora]; при липсващи/невалидни стойности - SF7, 125 kHz."""
+        lora = self.cfg["lora"]
+        ok_sf, sf, _ = validate_lora_sf(lora.get("sf", "7"))
+        ok_bw, bw_hz, _ = validate_lora_bw_khz(lora.get("bw_khz", "125"))
+        return (sf if ok_sf else 7), (bw_hz if ok_bw else 125000)
+
+    def get_lora_frequencies_hz(self):
+        """(лента 0 = до Gateway, лента 1 = Sensor -> Repeater) в Hz - запазено за съвместимост."""
+        lanes = self.get_lora_lanes_hz()
+        return lanes[0], lanes[1]
 
     def refresh_registry(self):
         self.registry_frame.refresh()

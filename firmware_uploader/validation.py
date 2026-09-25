@@ -199,3 +199,73 @@ def validate_lora_frequency_mhz(value):
             f"433.05-434.79 MHz или 863-870 MHz"
         )
     return True, mhz, ""
+
+
+# ---------------------------------------------------------------------
+# SF / BW / "ленти" (lanes) - централна радио конфигурация за цялата мрежа
+# ---------------------------------------------------------------------
+# Лента (lane) = честота на едно ниво на веригата. Лента 0 е Gateway (до нея слушат Gateway и
+# Executor-ите, на нея предава последният Repeater). Лента 1 е първото ниво Sensor->Repeater,
+# лента 2 - следващото и т.н. Repeater със входна лента K предава на лента K-1 (само uplink).
+LORA_SF_MIN = 7
+LORA_SF_MAX = 12
+LORA_BW_OPTIONS_KHZ = (62.5, 125.0, 250.0)   # SF/BW комбинациите, които firmware-ът поддържа
+LORA_MAX_LANES = 6
+
+
+def validate_lora_sf(value):
+    """value: текст или число. Връща (ok, sf_като_int_или_None, съобщение)."""
+    text = str(value).strip()
+    if not text.isdigit():
+        return False, None, "SF трябва да е цяло число между 7 и 12"
+    sf = int(text)
+    if sf < LORA_SF_MIN or sf > LORA_SF_MAX:
+        return False, None, "SF трябва да е между 7 и 12"
+    return True, sf, ""
+
+
+def validate_lora_bw_khz(value):
+    """value: текст/число в kHz (62.5, 125 или 250). Връща (ok, bw_в_Hz_като_int_или_None, съобщение)."""
+    try:
+        khz = float(str(value).strip().replace(",", "."))
+    except ValueError:
+        return False, None, "BW трябва да е 62.5, 125 или 250 (kHz)"
+    if khz not in LORA_BW_OPTIONS_KHZ:
+        return False, None, "BW трябва да е 62.5, 125 или 250 (kHz)"
+    return True, int(round(khz * 1000)), ""
+
+
+def parse_extra_lanes(text):
+    """'434.5, 435' -> ['434.5', '435'] (празните елементи се пропускат)."""
+    if not text:
+        return []
+    return [p.strip() for p in text.split(",") if p.strip()]
+
+
+def validate_lora_lanes(lane_strings, bw_hz):
+    """lane_strings: списък текстове в MHz - лента 0, лента 1, лента 2...
+    Проверява: всяка е валидна EU честота, няма повторения, най-много LORA_MAX_LANES и
+    разстоянието между всеки две ленти е поне 2 x BW (иначе съседните ленти си пречат).
+    Връща (ok, списък_MHz_като_float, съобщение)."""
+    if len(lane_strings) < 2:
+        return False, None, "Нужни са поне 2 ленти (Gateway и първото ниво Sensor -> Repeater)"
+    if len(lane_strings) > LORA_MAX_LANES:
+        return False, None, f"Най-много {LORA_MAX_LANES} ленти"
+    mhz_list = []
+    for i, text in enumerate(lane_strings):
+        ok, mhz, msg = validate_lora_frequency_mhz(text)
+        if not ok:
+            return False, None, f"Лента {i}: {msg}"
+        mhz_list.append(mhz)
+    min_gap_mhz = 2.0 * bw_hz / 1e6
+    for i in range(len(mhz_list)):
+        for j in range(i + 1, len(mhz_list)):
+            gap = abs(mhz_list[i] - mhz_list[j])
+            if gap < 1e-9:
+                return False, None, f"Ленти {i} и {j} са на една и съща честота ({mhz_list[i]:g} MHz)"
+            if gap + 1e-9 < min_gap_mhz:
+                return False, None, (
+                    f"Ленти {i} ({mhz_list[i]:g} MHz) и {j} ({mhz_list[j]:g} MHz) са твърде близо - "
+                    f"при BW {bw_hz / 1000:g} kHz разстоянието трябва да е поне {min_gap_mhz:g} MHz"
+                )
+    return True, mhz_list, ""

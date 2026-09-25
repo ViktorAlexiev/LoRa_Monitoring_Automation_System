@@ -79,7 +79,7 @@ void handleConfigLine(const String &line) {
   }
 
   // WiFi/MQTT полета - задължителни само wifi_ssid и mqtt_ip; останалите могат да липсват/са празни
-  String wifiSsid, wifiPassword, mqttIp, mqttPort, mqttUser, mqttPassword, freqStr, keyStr;
+  String wifiSsid, wifiPassword, mqttIp, mqttPort, mqttUser, mqttPassword, freqStr, keyStr, sfStr, bwStr;
   bool hasSsid = extractStringField(json, "wifi_ssid", wifiSsid);
   bool hasMqttIp = extractStringField(json, "mqtt_ip", mqttIp);
   extractStringField(json, "wifi_password", wifiPassword);   // може да липсва -> празно
@@ -87,6 +87,8 @@ void handleConfigLine(const String &line) {
   extractStringField(json, "mqtt_user", mqttUser);
   extractStringField(json, "mqtt_password", mqttPassword);
   extractStringField(json, "freq", freqStr);                 // LoRa честота в Hz, опционално
+  extractStringField(json, "sf", sfStr);                     // Spreading Factor 7..12, опционално
+  extractStringField(json, "bw", bwStr);                     // честотна лента в Hz (62500/125000/250000), опционално
   extractStringField(json, "key", keyStr);                   // AES мрежов ключ, hex, опционално
 
   if (!hasSsid || wifiSsid.length() == 0) {
@@ -117,12 +119,26 @@ void handleConfigLine(const String &line) {
     sendNack("mqtt_password твърде дълго");
     return;
   }
+  if (sfStr.length() > 0) {
+    long sf = sfStr.toInt();
+    if (sf < 7 || sf > 12) {
+      sendNack("невалиден sf (трябва 7..12)");
+      return;
+    }
+  }
+  if (bwStr.length() > 0) {
+    long bw = bwStr.toInt();
+    if (bw != 62500 && bw != 125000 && bw != 250000) {
+      sendNack("невалиден bw (трябва 62500, 125000 или 250000 Hz)");
+      return;
+    }
+  }
   if (mqttPort.length() == 0) {
     mqttPort = "1883"; // default
   }
 
   writeConfigToNvs(moduleId, wifiSsid, wifiPassword, mqttIp, mqttPort, mqttUser, mqttPassword,
-                    freqStr, keyStr);
+                    freqStr, keyStr, sfStr, bwStr);
 
   sendAck();
 }
@@ -154,7 +170,8 @@ bool hexToBytes(const String &hex, uint8_t *out, uint8_t outLen) {
 void writeConfigToNvs(const String &moduleId, const String &wifiSsid, const String &wifiPassword,
                        const String &mqttIp, const String &mqttPort,
                        const String &mqttUser, const String &mqttPassword,
-                       const String &freqStr, const String &keyStr) {
+                       const String &freqStr, const String &keyStr,
+                       const String &sfStr, const String &bwStr) {
   prefs.begin("cfg", false); // false = read/write mode
   prefs.putString("id", moduleId);
   prefs.putString("wssid", wifiSsid);
@@ -166,6 +183,13 @@ void writeConfigToNvs(const String &moduleId, const String &wifiSsid, const Stri
   // freq е опционално (само ако Python-ът го е пратил) - не презаписвай със 0, ако липсва
   if (freqStr.length() > 0) {
     prefs.putULong("freq", (uint32_t)freqStr.toInt());
+  }
+  // sf/bw - опционални (само ако са подадени); валидирани в handleConfigLine
+  if (sfStr.length() > 0) {
+    prefs.putUChar("sf", (uint8_t)sfStr.toInt());
+  }
+  if (bwStr.length() > 0) {
+    prefs.putULong("bw", (uint32_t)bwStr.toInt());
   }
   // key - 32 hex символа = 16 bytes, само ако е валиден
   if (keyStr.length() == 32) {
