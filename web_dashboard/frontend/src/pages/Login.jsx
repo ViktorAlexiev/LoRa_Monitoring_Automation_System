@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../AuthContext.jsx";
+import PasswordInput from "../components/PasswordInput.jsx";
 
 export default function Login() {
   const { login, error } = useAuth();
@@ -27,7 +28,7 @@ export default function Login() {
         </div>
         <div className="field">
           <label>Парола</label>
-          <input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <PasswordInput required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>
         {error && <div className="error-note">{error}</div>}
         <button className="btn btn-primary" type="submit" disabled={busy}>Вход</button>

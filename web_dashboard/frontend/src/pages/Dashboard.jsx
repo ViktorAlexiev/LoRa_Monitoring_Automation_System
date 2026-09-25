@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import ZoneCard from "../components/ZoneCard.jsx";
+import ErrorList from "../components/ErrorList.jsx";
 
 export default function Dashboard() {
   const [zones, setZones] = useState([]);
@@ -36,19 +37,7 @@ export default function Dashboard() {
         <p>{zones.length} зони · кликни зона за детайли и управление · обновява се на всеки {refreshSeconds} сек</p>
       </div>
       {error && <div className="error-note">Няма връзка с API-то: {error}</div>}
-      {networkErrors.map((e) => (
-        <div className={`error-banner sev-${e.severity}`} key={e.id}>
-          <span>{e.severity === "warning" ? "⚠" : "✖"}</span>
-          <div>
-            <div><b>{e.description}</b></div>
-            <div className="meta">
-              {e.error_code}
-              {e.executor_id && ` · изпълнител ${e.executor_id}`}
-              {" · открита "}{new Date(e.detected_at).toLocaleString("bg-BG", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-            </div>
-          </div>
-        </div>
-      ))}
+      <ErrorList errors={networkErrors} />
       <div className="zone-grid">
         {zones.map((z) => (
           <ZoneCard key={z.id} zone={z} />

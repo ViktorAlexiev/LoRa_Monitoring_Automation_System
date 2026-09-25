@@ -243,6 +243,18 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api/errors/open", response_model=List[schemas.ZoneErrorOut])
+def list_open_errors_all(db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
+    """Every open problem (any zone or none) - the admin device tables use it
+    to show which devices are actually in trouble."""
+    return (
+        db.query(models.ZoneError)
+        .filter(models.ZoneError.resolved_at.is_(None))
+        .order_by(models.ZoneError.detected_at.desc())
+        .all()
+    )
+
+
 @app.get("/api/errors/network", response_model=List[schemas.ZoneErrorOut])
 def list_network_errors(db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
     """Open problems not attributable to any single zone (zone_id IS NULL) -

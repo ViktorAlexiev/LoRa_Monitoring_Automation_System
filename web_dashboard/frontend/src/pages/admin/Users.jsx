@@ -3,6 +3,7 @@ import { api } from "../../api.js";
 import Modal from "../../components/Modal.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
 import { SearchBox, Th } from "../../components/TableControls.jsx";
+import PasswordInput from "../../components/PasswordInput.jsx";
 import { useTable } from "../../utils/useTable.js";
 
 const ROLE_LABEL = { admin: "Администратор", agronomist: "Агроном", viewer: "Наблюдател" };
@@ -22,6 +23,11 @@ function UserFormModal({ zones, editing, onClose, onSaved }) {
   );
   const [error, setError] = useState(null);
 
+  // An administrator always has access to every zone - picking zones for
+  // one is meaningless, so the chips are replaced by a note (and any stale
+  // selection is dropped on save).
+  const isAdmin = form.role === "admin";
+
   function toggleZone(id) {
     setForm((f) => ({
       ...f,
@@ -37,12 +43,12 @@ function UserFormModal({ zones, editing, onClose, onSaved }) {
           role: form.role,
           full_name: form.full_name,
           email: form.email,
-          zone_ids: form.zone_ids,
+          zone_ids: isAdmin ? [] : form.zone_ids,
         };
         if (form.password) payload.password = form.password;
         await api.users.update(editing.id, payload);
       } else {
-        await api.users.create(form);
+        await api.users.create({ ...form, zone_ids: isAdmin ? [] : form.zone_ids });
       }
       onSaved();
       onClose();
@@ -61,7 +67,7 @@ function UserFormModal({ zones, editing, onClose, onSaved }) {
         <div className="field"><label>Име</label><input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} placeholder="напр. Мария Иванова" /></div>
         <div className="field">
           <label>{editing ? "Нова парола (по избор)" : "Парола"}</label>
-          <input required={!editing} type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={editing ? "остави празно, за да не се сменя" : "••••••••"} />
+          <PasswordInput required={!editing} autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={editing ? "остави празно, за да не се сменя" : "••••••••"} />
         </div>
         <div className="field"><label>Имейл</label><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
         <div className="field full">
@@ -74,14 +80,18 @@ function UserFormModal({ zones, editing, onClose, onSaved }) {
         </div>
         <div className="field full">
           <label>Отговаря за зони</label>
-          <div className="checks">
-            {zones.map((z) => (
-              <label className="check-chip" key={z.id}>
-                <input type="checkbox" checked={form.zone_ids.includes(z.id)} onChange={() => toggleZone(z.id)} />
-                {z.name}
-              </label>
-            ))}
-          </div>
+          {isAdmin ? (
+            <p className="muted">Администраторът има достъп до всички зони — не е нужно да избираш.</p>
+          ) : (
+            <div className="checks">
+              {zones.map((z) => (
+                <label className="check-chip" key={z.id}>
+                  <input type="checkbox" checked={form.zone_ids.includes(z.id)} onChange={() => toggleZone(z.id)} />
+                  {z.name}
+                </label>
+              ))}
+            </div>
+          )}
         </div>
         {error && <div className="error-note field full">{error}</div>}
         <div className="field full">

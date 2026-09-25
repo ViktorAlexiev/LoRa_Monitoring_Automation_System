@@ -65,7 +65,7 @@ Three moving parts:
    a. Finalizes anything the MQTT thread marked acked but not yet
       resolved, once its physical settle time has elapsed (see below).
    b. Times out any command that's been "pending" far longer than the
-      gateway's own worst case (~12s per the manual) with no reply at all -
+      gateway's own worst case (up to ~32s at SF12) with no reply at all -
       a defensive local backstop in case a commands_status message never
       arrives.
    c. Issues new commands for any valve/pump where desired != current and
@@ -107,7 +107,11 @@ from app.database import SessionLocal  # noqa: E402
 from daemons.system_config import mqtt_settings  # noqa: E402
 
 TICK_SECONDS = 2
-LOCAL_TIMEOUT_SECONDS = 20  # gateway's own worst case is ~12s (manual 3.1); this is a backstop, not a retry
+# Backstop, not a retry. Must stay ABOVE the gateway's worst case: (1 + MAX_RETRIES) x ACK timeout,
+# which grows with the LoRa spreading factor (~3.6s at SF7 ... ~32s at SF12, 3 x ~10.8s). Firing
+# earlier than the gateway gives up risks a command that DID execute being recorded as failed
+# (desired reset to current, late commands_status then ignored) - a DB/physical mismatch.
+LOCAL_TIMEOUT_SECONDS = 40
 COM_ON = "A1"
 COM_OFF = "B2"
 STATUS_ACK = 0
@@ -340,7 +344,7 @@ def _finalize_acked_commands(db, now):
 
 def _timeout_stale_pending(db, now):
     """Backstop for a commands_status message that never arrives at all -
-    the gateway's own envelope (manual 3.1) tops out around 12s including
+    the gateway's own envelope (manual 3.1) tops out around 12s at SF7 (~32s at SF12) including
     its 2 retries, so anything still 'pending' well past that is presumed
     lost, not just slow."""
     cutoff = now - datetime.timedelta(seconds=LOCAL_TIMEOUT_SECONDS)

@@ -4,6 +4,7 @@ import Modal from "../../components/Modal.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
 import { SearchBox, Th } from "../../components/TableControls.jsx";
 import { useTable } from "../../utils/useTable.js";
+import { errorTitle } from "../../errorLabels.js";
 
 const TABS = [
   { key: "sensors", label: "Сензори" },
@@ -34,6 +35,56 @@ function StateChip({ value }) {
   );
 }
 
+// "Активен" used to mean only "switched on by the admin" - it stayed green
+// even for a dead device. Now: switched off > has an open problem > works.
+function StatusChip({ item, kind, errors }) {
+  const [open, setOpen] = useState(false);
+  if (!item.is_active) {
+    return <span className="chip"><span className="dot dot-off"></span>Изключен</span>;
+  }
+  const field = { sensors: "sensor_id", executors: "executor_id", repeaters: "repeater_id", valves: "valve_id", pumps: "pump_id" }[kind];
+  const mine = errors.filter((e) => (field ? e[field] === item.id : e.error_code === "GATEWAY_OFFLINE"));
+  if (!mine.length) {
+    return <span className="chip"><span className="dot dot-ok"></span>Работи</span>;
+  }
+  const worst = mine.find((e) => e.severity === "critical") || mine.find((e) => e.severity === "error") || mine[0];
+  const SEV = { critical: "Сериозен проблем", error: "Проблем", warning: "Внимание" };
+  return (
+    <>
+      <button
+        type="button" className={`chip chip-problem chip-button sev-${worst.severity}`}
+        onClick={() => setOpen(true)} title="Натисни за подробности"
+      >
+        <span className="dot dot-problem"></span>{worst.severity === "warning" ? "Внимание" : "Проблем"}
+        {mine.length > 1 && ` (${mine.length})`}
+      </button>
+      {open && (
+        <Modal title={`${item.name || item.id} (${item.id})`} onClose={() => setOpen(false)} width="560px">
+          <div className="problem-details">
+            {mine.map((e) => (
+              <div className={`error-banner sev-${e.severity}`} key={e.id}>
+                <span>{e.severity === "warning" ? "⚠" : "✖"}</span>
+                <div>
+                  <div><b>{errorTitle(e.error_code)}</b> · {SEV[e.severity]}</div>
+                  <div>{e.description}</div>
+                  <div className="meta">Открита {fmtTime(e.detected_at)}</div>
+                </div>
+              </div>
+            ))}
+            {item.last_heartbeat_at !== undefined && (
+              <p className="muted">Последно обаждане на устройството: {fmtTime(item.last_heartbeat_at)}</p>
+            )}
+            <p className="muted">Проблемът се затваря сам, когато устройството започне да работи нормално.</p>
+          </div>
+          <div className="form-actions">
+            <button className="btn btn-primary" onClick={() => setOpen(false)}>Разбрах</button>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
 function fmtTime(iso) {
   if (!iso) return "никога";
   // iso is a real UTC instant now (backend appends "Z") - convert to the
@@ -50,6 +101,7 @@ export default function PhysicalModules() {
   const [valves, setValves] = useState([]);
   const [pumps, setPumps] = useState([]);
   const [gateway, setGateway] = useState([]);
+  const [openErrors, setOpenErrors] = useState([]);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null); // null = add mode
   const [form, setForm] = useState({});
@@ -64,14 +116,16 @@ export default function PhysicalModules() {
   const gatewayTable = useTable(gateway, { searchFields: ["id", "name"] });
 
   async function loadAll() {
-    const [s, e, r, v, p, g] = await Promise.all([
+    const [s, e, r, v, p, g, errs] = await Promise.all([
       api.sensors.list(),
       api.executors.list(),
       api.repeaters.list(),
       api.valves.list(),
       api.pumps.list(),
       api.gateway.list(),
+      api.errors.open().catch(() => []),
     ]);
+    setOpenErrors(errs);
     setSensors(s);
     setExecutors(e);
     setRepeaters(r);
@@ -277,7 +331,7 @@ export default function PhysicalModules() {
                     <td>{s.name}</td>
                     <td className="muted">{s.zone_id ? `Зона #${s.zone_id}` : "—"}</td>
                     <td className="muted">{s.repeater_id || "—"}</td>
-                    <td><StateChip value={s.is_active} /></td>
+                    <td><StatusChip item={s} kind="sensors" errors={openErrors} /></td>
                     <td>
                       <button className="btn btn-sm" onClick={() => openEdit("sensors", s)}>Редактирай</button>
                       <button className="btn btn-sm" onClick={() => askDelete("sensors", s.id, s.id)}>Изтрий</button>
@@ -314,7 +368,7 @@ export default function PhysicalModules() {
                     <td><span className="id-tag mono">{e.id}</span></td>
                     <td>{e.name}</td>
                     <td className="muted">{fmtTime(e.last_heartbeat_at)}</td>
-                    <td><StateChip value={e.is_active} /></td>
+                    <td><StatusChip item={e} kind="executors" errors={openErrors} /></td>
                     <td>
                       <button className="btn btn-sm" onClick={() => openEdit("executors", e)}>Редактирай</button>
                       <button className="btn btn-sm" onClick={() => askDelete("executors", e.id, e.id)}>Изтрий</button>
@@ -351,7 +405,7 @@ export default function PhysicalModules() {
                     <td><span className="id-tag mono">{r.id}</span></td>
                     <td>{r.name}</td>
                     <td className="muted">{r.sensor_ids.join(", ") || "—"}</td>
-                    <td><StateChip value={r.is_active} /></td>
+                    <td><StatusChip item={r} kind="repeaters" errors={openErrors} /></td>
                     <td>
                       <button className="btn btn-sm" onClick={() => openEdit("repeaters", r)}>Редактирай</button>
                       <button className="btn btn-sm" onClick={() => askDelete("repeaters", r.id, r.id)}>Изтрий</button>
@@ -398,7 +452,7 @@ export default function PhysicalModules() {
                       <td className="muted">{v.executor_id || "—"}</td>
                       <td className="muted mono">{v.opening_time_s}s</td>
                       <td className="muted mono">{v.closing_time_s}s</td>
-                      <td><StateChip value={v.current_state === "on" ? "Отворен" : "Затворен"} /></td>
+                      <td><StateChip value={v.current_state === "on" ? "Отворен" : "Затворен"} /> <StatusChip item={v} kind="valves" errors={openErrors} /></td>
                       <td className="muted mono">{fmtTime(v.current_updated_at)}</td>
                       <td>
                         <button className="btn btn-sm" onClick={() => openEdit("valves", v)}>Редактирай</button>
@@ -444,7 +498,7 @@ export default function PhysicalModules() {
                     <td className="muted">{p.max_simultaneous_valves}</td>
                     <td className="muted mono">{p.startup_time_s}s</td>
                     <td className="muted mono">{p.shutdown_time_s}s</td>
-                    <td><StateChip value={p.current_state === "on" ? "Включена" : "Изключена"} /></td>
+                    <td><StateChip value={p.current_state === "on" ? "Включена" : "Изключена"} /> <StatusChip item={p} kind="pumps" errors={openErrors} /></td>
                     <td className="muted mono">{fmtTime(p.current_updated_at)}</td>
                     <td>
                       <button className="btn btn-sm" onClick={() => openEdit("pumps", p)}>Редактирай</button>
@@ -482,7 +536,7 @@ export default function PhysicalModules() {
                     <td><span className="id-tag mono">{g.id}</span></td>
                     <td>{g.name}</td>
                     <td className="muted">{fmtTime(g.last_heartbeat_at)}</td>
-                    <td><StateChip value={g.is_active} /></td>
+                    <td><StatusChip item={g} kind="gateway" errors={openErrors} /></td>
                     <td>
                       <button className="btn btn-sm" onClick={() => openEdit("gateway", g)}>Редактирай</button>
                       <button className="btn btn-sm" onClick={() => askDelete("gateway", g.id, g.name || g.id)}>Изтрий</button>

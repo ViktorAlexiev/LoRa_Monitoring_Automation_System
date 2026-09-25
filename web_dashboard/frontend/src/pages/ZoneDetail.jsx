@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api.js";
+import ErrorList from "../components/ErrorList.jsx";
 import ZoneSettingsModal from "../components/ZoneSettingsModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Modal from "../components/Modal.jsx";
@@ -205,7 +206,6 @@ export default function ZoneDetail() {
   if (!zone) {
     return (
       <main className="view">
-        <Link to="/" className="btn btn-sm">&#8592; Табло</Link>
         {loadError ? (
           <div className="error-note">{loadError}</div>
         ) : (
@@ -223,8 +223,6 @@ export default function ZoneDetail() {
 
   return (
     <main className="view">
-      <Link to="/" className="btn btn-sm">&#8592; Табло</Link>
-
       <div className="zone-detail-head">
         <div>
           <h1>{zone.name}</h1>
@@ -249,22 +247,7 @@ export default function ZoneDetail() {
         </div>
       )}
 
-      {errors.map((e) => (
-        <div className={`error-banner sev-${e.severity}`} key={e.id}>
-          <span>{e.severity === "warning" ? "⚠" : "✖"}</span>
-          <div>
-            <div><b>{e.description}</b></div>
-            <div className="meta">
-              {e.error_code}
-              {e.sensor_id && ` · сензор ${e.sensor_id}`}
-              {e.valve_id && ` · клапан ${e.valve_id}`}
-              {e.pump_id && ` · помпа ${e.pump_id}`}
-              {e.executor_id && ` · изпълнител ${e.executor_id}`}
-              {" · открита "}{new Date(e.detected_at).toLocaleString("bg-BG", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-            </div>
-          </div>
-        </div>
-      ))}
+      <ErrorList errors={errors} />
 
       <div className="subtabs">
         {visibleTabs.map((t) => (

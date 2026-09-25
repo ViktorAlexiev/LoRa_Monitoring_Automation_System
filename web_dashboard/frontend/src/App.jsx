@@ -29,7 +29,8 @@ export default function App() {
         </div>
         <div className="topbar-right">
           <span className="muted">{user.full_name || user.username} · {ROLE_LABEL[user.role]}</span>
-          {!inAdmin && user.role === "admin" && <Link className="btn" to="/admin">Admin панел</Link>}
+          {location.pathname !== "/" && <Link className="btn btn-back" to="/">&#8592; Към таблото</Link>}
+          {location.pathname === "/" && user.role === "admin" && <Link className="btn" to="/admin">Admin панел</Link>}
           <button className="btn btn-sm" onClick={logout}>Изход</button>
         </div>
       </header>

@@ -113,5 +113,6 @@ export const api = {
   },
   errors: {
     network: () => request("/errors/network"),
+    open: () => request("/errors/open"),
   },
 };

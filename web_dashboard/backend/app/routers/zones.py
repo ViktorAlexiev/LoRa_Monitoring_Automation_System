@@ -135,6 +135,33 @@ def _require_no_transition(zone: models.Zone):
         )
 
 
+def _require_regime_configured(db: Session, zone: models.Zone, regime: str):
+    """A zone must not run in "по време" / "по прагове" with nothing set up -
+    it would just sit there doing nothing while looking like it's working."""
+    if regime == "clock":
+        ok = any(sch.enabled and sch.valve_links for sch in zone.schedules)
+        if not ok:
+            raise HTTPException(
+                400,
+                "Не може да се включи режим „По време“ — няма зададен график. "
+                "Първо добави поне един график с клапан.",
+            )
+    elif regime == "threshold":
+        linked = {
+            (t.zone_id, t.param) for t in db.query(models.ThresholdValve).filter_by(zone_id=zone.id).all()
+        }
+        ok = any(
+            (t.zone_id, t.param) in linked and (t.min_val is not None)
+            for t in zone.thresholds
+        )
+        if not ok:
+            raise HTTPException(
+                400,
+                "Не може да се включи режим „По прагове“ — няма зададен праг. "
+                "Първо задай долна граница и клапан за поне един показател.",
+            )
+
+
 @router.patch("/{zone_id}", response_model=schemas.ZoneOut)
 def update_zone(zone_id: int, payload: schemas.ZoneUpdate, db: Session = Depends(get_db),
                  user: models.User = Depends(get_current_user)):
@@ -149,6 +176,11 @@ def update_zone(zone_id: int, payload: schemas.ZoneUpdate, db: Session = Depends
         payload.regime is not None and payload.regime != zone.regime and zone.is_active
     )
     deactivating = payload.is_active is False and zone.is_active
+
+    final_active = payload.is_active if payload.is_active is not None else zone.is_active
+    final_regime = payload.regime if payload.regime is not None else zone.regime
+    if final_active and (activating or payload.regime is not None):
+        _require_regime_configured(db, zone, final_regime)
 
     # A zone with no sensors (e.g. a purely manual valve someone flips by
     # eye) or no consumers (e.g. a monitoring-only zone with no irrigation)
@@ -439,6 +471,15 @@ def delete_schedule(zone_id: int, schedule_id: int, db: Session = Depends(get_db
     obj = db.get(models.ZoneSchedule, schedule_id)
     if not obj or obj.zone_id != zone_id:
         raise HTTPException(404, "Not found")
+    zone = db.get(models.Zone, zone_id)
+    if zone and zone.is_active and zone.regime == "clock":
+        others = [x for x in zone.schedules if x.id != obj.id and x.enabled and x.valve_links]
+        if not others:
+            raise HTTPException(
+                400,
+                "Това е последният график на зоната, която работи „По време“. "
+                "Първо смени режима или добави друг график.",
+            )
     db.delete(obj)
     db.commit()
 

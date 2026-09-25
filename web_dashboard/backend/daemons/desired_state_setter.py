@@ -94,10 +94,14 @@ def _open_queue_wait(db, zone, valve, pump, occupants):
         .filter_by(zone_id=zone.id, valve_id=valve.id, pump_id=pump.id, error_code="PUMP_QUEUE_WAIT", resolved_at=None)
         .first()
     )
-    occupant_desc = ", ".join(sorted(occupants)) or "?"
+    names = {v.id: f"{v.name.strip()} ({v.id})" if (v.name or "").strip() else v.id for v in pump.valves}
+    occupant_desc = ", ".join(sorted(names.get(o, o) for o in occupants)) or "?"
+    pump_name = f"{pump.name.strip()} ({pump.id})" if (pump.name or "").strip() else pump.id
+    valve_name = f"{valve.name.strip()} ({valve.id})" if (valve.name or "").strip() else valve.id
     description = (
-        f"Изчаква слот на помпа {pump.id} "
-        f"({len(occupants)}/{pump.max_simultaneous_valves} заети от: {occupant_desc})"
+        f"Поливането на „{zone.name}“ (клапан {valve_name}) чака ред — помпа {pump_name} вече "
+        f"захранва {len(occupants)} от най-много {pump.max_simultaneous_valves} клапана "
+        f"({occupant_desc}). Ще започне щом се освободи."
     )
     if existing:
         existing.description = description  # keep the occupant list fresh; detected_at (queue position) stays put

@@ -70,11 +70,8 @@ Checks implemented so far:
    prevent this; this check exists purely as a just-in-case backstop
    against the actual physical/DB state ever disagreeing with that.
 
-10. OVERWATERING_DETECTED (warning) - distinct from SOIL_TOO_WET: this
-    fires specifically when the zone is too wet while EVERY one of its
-    valves is current_state=off - i.e. nothing this system did caused it
-    (rain, a leak, or a valve stuck open in a way nothing here can detect -
-    see the VALVE_STUCK_OPEN omission note below).
+10. (removed) OVERWATERING_DETECTED was merged into SOIL_TOO_WET: its text now
+    says whether the valves are on or off.
 
 11. SENSOR_OUTLIER (warning) - only meaningful with >=3 sensors reporting
     the same field in one zone (fewer than that and a standard deviation is
@@ -206,7 +203,21 @@ def _resolve(db, error_code, zone_id=None, sensor_id=None, valve_id=None, pump_i
         row.resolved_at = datetime.datetime.utcnow()
 
 
+def _nm(kind, obj):
+    """Plain-language label for a device: 'клапан „Име“ (V01)' - name plus
+    the device id in brackets (just the id when the name is empty)."""
+    name = (getattr(obj, "name", "") or "").strip()
+    return f"{kind} „{name}“ ({obj.id})" if name else f"{kind} {obj.id}"
+
+
+PARAM_LABEL = {"S_H": "влажност на почвата", "S_T": "температура на почвата",
+               "A_H": "влажност на въздуха", "A_T": "температура на въздуха"}
+
+
 def _check_soil_moisture(db):
+    # OVERWATERING_DETECTED was merged into SOIL_TOO_WET - close leftovers
+    for row in db.query(models.ZoneError).filter_by(error_code="OVERWATERING_DETECTED", resolved_at=None).all():
+        row.resolved_at = datetime.datetime.utcnow()
     for zone in db.query(models.Zone).filter_by(is_active=True).all():
         if zone.humidity_warn_min is None and zone.humidity_warn_max is None:
             continue
@@ -220,16 +231,22 @@ def _check_soil_moisture(db):
         if too_dry:
             _open_or_refresh(
                 db, "SOIL_TOO_DRY", "error",
-                f"Недостатъчно поливане — влажността на почвата е {reading:.1f}%, под зададения минимум {zone.humidity_warn_min}%",
+                f"Почвата е твърде суха — {reading:.0f}% влажност при минимум {zone.humidity_warn_min}%. "
+                f"Проверете дали поливането работи.",
                 zone_id=zone.id,
             )
         else:
             _resolve(db, "SOIL_TOO_DRY", zone_id=zone.id)
 
         if too_wet:
+            if any(v.current_state == "on" for v in zone.valves):
+                cause = "Спрете поливането."
+            else:
+                cause = ("Всички клапани са изключени, значи не е от поливането — "
+                         "възможен е дъжд, теч или клапан, който не се затваря.")
             _open_or_refresh(
                 db, "SOIL_TOO_WET", "error",
-                f"Преполиване — влажността на почвата е {reading:.1f}%, над зададения максимум {zone.humidity_warn_max}%",
+                f"Почвата е твърде мокра — {reading:.0f}% влажност при максимум {zone.humidity_warn_max}%. {cause}",
                 zone_id=zone.id,
             )
         else:
@@ -243,10 +260,11 @@ def _check_sensor_offline(db, now):
         latest = _latest(sensor)
         last = latest.recorded_at if latest else None
         if last is None or last < cutoff:
-            age = "никога" if last is None else f"последно в {last.strftime('%Y-%m-%d %H:%M')}"
+            age = "Още не е изпращал данни" if last is None else f"Последни данни: {last.strftime('%d.%m в %H:%M')}"
             _open_or_refresh(
                 db, "SENSOR_OFFLINE", "error",
-                f"Сензор {sensor.id} няма ново показание повече от {limit_minutes} мин ({age})",
+                f"{_nm('Сензор', sensor)} не праща данни от повече от {limit_minutes} мин. {age}. "
+                f"Проверете батерията и дали е в обхват.",
                 zone_id=sensor.zone_id, sensor_id=sensor.id,
             )
         else:
@@ -268,7 +286,8 @@ def _check_sensor_fault_255(db):
         if bad_fields:
             _open_or_refresh(
                 db, "SENSOR_FAULT_255", "error",
-                f"Сензор {sensor.id} върна невалидно показание (255) за: {', '.join(bad_fields)}",
+                f"{_nm('Сензор', sensor)} съобщава, че не може да измери: {', '.join(bad_fields)}. "
+                f"Вероятно е повреден или е извън почвата.",
                 zone_id=sensor.zone_id, sensor_id=sensor.id,
             )
         else:
@@ -302,8 +321,8 @@ def _check_command_failures(db):
         if valve.last_command_failed:
             _open_or_refresh(
                 db, "VALVE_COMMAND_TIMEOUT", "critical",
-                f"Последната команда към клапан {valve.id} не е достигнала целта — desired_state е "
-                f"върнат към текущото състояние от reconciler-а, за да спре безкрайният retry",
+                f"{_nm('Клапан', valve)} не изпълни командата — устройството не отговори. "
+                f"Проверете дали е включено и има връзка, после опитайте пак.",
                 zone_id=valve.zone_id, valve_id=valve.id,
             )
         else:
@@ -315,8 +334,8 @@ def _check_command_failures(db):
         if pump.last_command_failed:
             _open_or_refresh(
                 db, "PUMP_COMMAND_TIMEOUT", "critical",
-                f"Последната команда към помпа {pump.id} не е достигнала целта — desired_state е "
-                f"върнат към текущото състояние от reconciler-а, за да спре безкрайният retry",
+                f"{_nm('Помпа', pump)} не изпълни командата — устройството не отговори. "
+                f"Проверете дали е включена и има връзка, после опитайте пак.",
                 pump_id=pump.id,
             )
         else:
@@ -347,19 +366,22 @@ def _check_device_offline(db, now):
     cutoff = now - datetime.timedelta(minutes=limit_minutes)
 
     device_checks = [
-        (models.Executor, "EXECUTOR_OFFLINE", "изпълнител", "executor_id"),
-        (models.Repeater, "LORA_REPEATER_DOWN", "повторител", "repeater_id"),
-        (models.Gateway, "GATEWAY_OFFLINE", "gateway", None),
+        (models.Executor, "EXECUTOR_OFFLINE", "Модул за управление", "executor_id"),
+        (models.Repeater, "LORA_REPEATER_DOWN", "Усилвател на сигнала", "repeater_id"),
+        (models.Gateway, "GATEWAY_OFFLINE", "Централният модул", None),
     ]
     for model, error_code, label, id_field in device_checks:
         for device in db.query(model).filter_by(is_active=True).all():
             last = device.last_heartbeat_at
             kwargs = {id_field: device.id} if id_field else {}
             if last is None or last < cutoff:
-                age = "никога" if last is None else f"последно в {last.strftime('%Y-%m-%d %H:%M')}"
+                age = "Още не се е обаждал" if last is None else f"Последно обаждане: {last.strftime('%d.%m в %H:%M')}"
+                name = (device.name or "").strip()
+                who = f"{label} „{name}“ ({device.id})" if name else f"{label} {device.id}"
                 _open_or_refresh(
                     db, error_code, "critical",
-                    f"Няма heartbeat от {label} {device.id} повече от {limit_minutes} мин ({age})",
+                    f"{who} не отговаря от повече от {limit_minutes} мин. {age}. "
+                    f"Проверете захранването и връзката.",
                     **kwargs,
                 )
             else:
@@ -388,8 +410,8 @@ def _check_valve_no_effect(db, now):
         if max(readings) - min(readings) < 0.05:  # effectively unchanged, allow tiny float noise
             _open_or_refresh(
                 db, "VALVE_NO_EFFECT", "error",
-                f"Клапан {valve.id} е включен от над {limit_minutes} мин, но влажността на почвата в "
-                f"„{zone.name}“ не се е променила изобщо (~{readings[-1]}%)",
+                f"{_nm('Клапан', valve)} е отворен от над {limit_minutes} мин, но влажността в "
+                f"„{zone.name}“ не се променя (~{readings[-1]:.0f}%). Вероятно няма вода или клапанът не пуска.",
                 zone_id=zone.id, valve_id=valve.id,
             )
         else:
@@ -424,8 +446,8 @@ def _check_sensor_stuck(db, now):
         if stuck_fields:
             _open_or_refresh(
                 db, "SENSOR_STUCK_VALUE", "warning",
-                f"Сензор {sensor.id} показва напълно непроменена стойност повече от {limit_minutes} мин за: "
-                f"{', '.join(stuck_fields)}",
+                f"{_nm('Сензор', sensor)} показва една и съща стойност от над {limit_minutes} мин ({', '.join(stuck_fields)}). "
+                f"Може да е заседнал или повреден.",
                 zone_id=sensor.zone_id, sensor_id=sensor.id,
             )
         else:
@@ -450,7 +472,7 @@ def _check_sensor_out_of_range(db):
         if bad:
             _open_or_refresh(
                 db, "SENSOR_OUT_OF_RANGE", "error",
-                f"Сензор {sensor.id} върна физически невъзможна стойност: {', '.join(bad)}",
+                f"{_nm('Сензор', sensor)} показва невъзможна стойност ({', '.join(bad)}). Вероятно е повреден.",
                 zone_id=sensor.zone_id, sensor_id=sensor.id,
             )
         else:
@@ -463,36 +485,12 @@ def _check_pump_capacity_exceeded(db):
         if open_count > pump.max_simultaneous_valves:
             _open_or_refresh(
                 db, "PUMP_CAPACITY_EXCEEDED", "error",
-                f"Помпа {pump.id} обслужва {open_count} отворени клапана едновременно, "
-                f"а лимитът ѝ е {pump.max_simultaneous_valves}",
+                f"{_nm('Помпа', pump)} захранва {open_count} отворени клапана наведнъж, а може най-много "
+                f"{pump.max_simultaneous_valves}. Затворете някой клапан.",
                 pump_id=pump.id,
             )
         else:
             _resolve(db, "PUMP_CAPACITY_EXCEEDED", pump_id=pump.id)
-
-
-def _check_overwatering(db):
-    for zone in db.query(models.Zone).filter_by(is_active=True).all():
-        if zone.humidity_warn_max is None:
-            continue
-        if any(v.current_state == "on" for v in zone.valves):
-            # something IS actively watering - that's SOIL_TOO_WET's territory,
-            # not this. Still resolve any previously-open row: it may have
-            # been raised while everything was off and no longer applies.
-            _resolve(db, "OVERWATERING_DETECTED", zone_id=zone.id)
-            continue
-        reading = _latest_reading_avg(zone, "soil_h")
-        if reading is None:
-            continue
-        if reading > zone.humidity_warn_max:
-            _open_or_refresh(
-                db, "OVERWATERING_DETECTED", "warning",
-                f"Почвата в „{zone.name}“ е над максимума ({reading:.1f}% > {zone.humidity_warn_max}%), "
-                f"въпреки че всички клапани са изключени",
-                zone_id=zone.id,
-            )
-        else:
-            _resolve(db, "OVERWATERING_DETECTED", zone_id=zone.id)
 
 
 def _check_threshold_misconfigured(db):
@@ -516,7 +514,7 @@ def _check_threshold_misconfigured(db):
     for rule in db.query(models.ZoneThreshold).all():
         if rule.min_val is not None and rule.max_val is not None and rule.min_val >= rule.max_val:
             bad_by_zone.setdefault(rule.zone_id, []).append(
-                f"{rule.param} (долна {rule.min_val} ≥ горна {rule.max_val})"
+                f"{PARAM_LABEL.get(rule.param, rule.param)} (най-ниската {rule.min_val} не е под най-високата {rule.max_val})"
             )
 
     for zone in db.query(models.Zone).all():
@@ -527,7 +525,7 @@ def _check_threshold_misconfigured(db):
         )
         bad = bad_by_zone.get(zone.id)
         if bad:
-            description = f"Неправилно зададени прагове в „{zone.name}“: {'; '.join(bad)}"
+            description = f"Неправилни граници в „{zone.name}“: {'; '.join(bad)}. Поправете ги в настройките на зоната."
             if existing:
                 existing.description = description
             else:
@@ -567,15 +565,15 @@ def _check_sensor_outlier(db):
                     )
                     if deviates:
                         outlier_desc.setdefault(target_s.id, []).append(
-                            f"{label} {target_v} (останалите: средно {other_mean:.1f})"
+                            f"{label} {target_v} (при другите: около {other_mean:.1f})"
                         )
 
         for s in sensors_with_readings:
             if s.id in outlier_desc:
                 _open_or_refresh(
                     db, "SENSOR_OUTLIER", "warning",
-                    f"Сензор {s.id} се отклонява силно от останалите в „{zone.name}“: "
-                    f"{'; '.join(outlier_desc[s.id])}",
+                    f"{_nm('Сензор', s)} показва много различно от останалите в „{zone.name}“: "
+                    f"{'; '.join(outlier_desc[s.id])}. Проверете го.",
                     zone_id=zone.id, sensor_id=s.id,
                 )
             else:
@@ -620,8 +618,8 @@ def _progress_zone_transitions(db):
             for valve in failed:
                 _open_or_refresh(
                     db, "MODULE_UNREACHABLE", "error",
-                    f"Няма връзка с модул {valve.executor_id or '?'} — не може да се изключи {valve.id} "
-                    f"за преход на зона „{zone.name}“",
+                    f"Няма връзка с модула на {_nm('клапан', valve)} — не може да се спре, за да се смени режимът "
+                    f"на „{zone.name}“. Проверете модула.",
                     zone_id=zone.id, valve_id=valve.id, executor_id=valve.executor_id,
                 )
         # else: still genuinely converging - leave as "waiting", recheck next tick.
@@ -669,7 +667,6 @@ def tick():
         _check_sensor_stuck(db, now)
         _check_sensor_out_of_range(db)
         _check_pump_capacity_exceeded(db)
-        _check_overwatering(db)
         _check_sensor_outlier(db)
         _check_threshold_misconfigured(db)
         _check_device_offline(db, now)

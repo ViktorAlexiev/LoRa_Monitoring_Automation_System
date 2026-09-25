@@ -99,9 +99,10 @@ export default function ZoneModulesModal({
                 
               />
               <span className="id-tag mono">{it.id}</span>
-              <span>{it.name}</span>
-              {elsewhere && <span className="muted">в друга зона</span>}
-              {notWired && <span className="muted">няма помпа/изпълнител</span>}
+              <span className="module-name">{it.name}</span>
+              <span className="muted module-note">
+                {elsewhere ? "в друга зона" : notWired ? "няма помпа/изпълнител" : ""}
+              </span>
             </label>
           );
         })}

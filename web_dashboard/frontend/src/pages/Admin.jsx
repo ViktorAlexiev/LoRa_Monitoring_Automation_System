@@ -7,7 +7,7 @@ import Settings from "./admin/Settings.jsx";
 
 export default function Admin() {
   // Sidebar becomes a collapsible drawer below the "sidebar-breakpoint" width
-  // (see styles.css) - this only controls whether it's open there; on wider
+  // (styling removed) - this only controls whether it's open there; on wider
   // screens the sidebar is always visible regardless of this state.
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -30,9 +30,6 @@ export default function Admin() {
         <NavLink to="/admin/settings" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`} onClick={() => setMenuOpen(false)}>
           <span className="nav-icon">&#128295;</span> Настройки
         </NavLink>
-        <div>
-          <NavLink to="/" className="nav-item" onClick={() => setMenuOpen(false)}><span className="nav-icon">&#8592;</span> Табло</NavLink>
-        </div>
       </aside>
       <main className="admin-main">
         <Routes>
