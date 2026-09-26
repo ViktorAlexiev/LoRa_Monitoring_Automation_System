@@ -666,7 +666,7 @@ def get_map_objects(zone_id: int, db: Session = Depends(get_db), user: models.Us
     if not zone:
         raise HTTPException(404, "Zone not found")
     require_zone_view(db, user, zone_id)
-    return [schemas.MapObjectItem(kind=o.kind, label=o.label or "", x=o.x, y=o.y, w=o.w, h=o.h) for o in zone.map_objects]
+    return [schemas.MapObjectItem(kind=o.kind, label=o.label or "", color=o.color or "", x=o.x, y=o.y, w=o.w, h=o.h) for o in zone.map_objects]
 
 
 @router.put("/{zone_id}/objects", response_model=List[schemas.MapObjectItem],

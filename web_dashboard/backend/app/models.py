@@ -134,6 +134,7 @@ class ZoneMapObject(Base):
     zone_id = Column(Integer, ForeignKey("zones.id"), nullable=False)
     kind = Column(String(16), nullable=False)
     label = Column(String(64), default="")
+    color = Column(String(16), default="")  # palette key chosen by the admin; empty = the kind's own colour
     x = Column(Float, nullable=False)
     y = Column(Float, nullable=False)
     w = Column(Float, nullable=False)

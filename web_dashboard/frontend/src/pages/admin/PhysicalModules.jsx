@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api.js";
 import Modal from "../../components/Modal.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
@@ -111,14 +111,43 @@ export default function PhysicalModules() {
   const [error, setError] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null); // { kind, id, label }
 
-  const sensorsTable = useTable(sensors, { searchFields: ["id", "name"] });
-  const executorsTable = useTable(executors, { searchFields: ["id", "name"] });
-  const repeatersTable = useTable(repeaters, { searchFields: ["id", "name"] });
-  const valvesTable = useTable(valves, { searchFields: ["id", "name"] });
-  const pumpsTable = useTable(pumps, { searchFields: ["id", "name"] });
+  const [zones, setZones] = useState([]);
+  const [zoneFilter, setZoneFilter] = useState(""); // "" = all zones, "none" = not in a zone, else a zone id
+
+  // Zones an item belongs to: sensors/valves directly; a pump/executor through
+  // the valves it drives; a repeater through the sensors it relays.
+  const zoneName = (id) => zones.find((z) => z.id === id)?.name || `Зона #${id}`;
+  const filtered = useMemo(() => {
+    const valveZones = (pred) => valves.filter(pred).map((v) => v.zone_id);
+    const zonesOf = {
+      sensors: (x) => [x.zone_id],
+      valves: (x) => [x.zone_id],
+      pumps: (x) => valveZones((v) => v.pump_id === x.id),
+      executors: (x) => [...valveZones((v) => v.executor_id === x.id), ...valveZones((v) => pumps.find((p) => p.id === v.pump_id)?.executor_id === x.id)],
+      repeaters: (x) => (x.sensor_ids || []).map((sid) => sensors.find((s) => s.id === sid)?.zone_id),
+    };
+    const keep = (kind, list) => {
+      if (!zoneFilter) return list;
+      return list.filter((x) => {
+        const zs = zonesOf[kind](x).filter((z) => z != null);
+        return zoneFilter === "none" ? zs.length === 0 : zs.includes(Number(zoneFilter));
+      });
+    };
+    return {
+      sensors: keep("sensors", sensors), valves: keep("valves", valves), pumps: keep("pumps", pumps),
+      executors: keep("executors", executors), repeaters: keep("repeaters", repeaters),
+    };
+  }, [zoneFilter, sensors, valves, pumps, executors, repeaters]);
+
+  const sensorsTable = useTable(filtered.sensors, { searchFields: ["id", "name"] });
+  const executorsTable = useTable(filtered.executors, { searchFields: ["id", "name"] });
+  const repeatersTable = useTable(filtered.repeaters, { searchFields: ["id", "name"] });
+  const valvesTable = useTable(filtered.valves, { searchFields: ["id", "name"] });
+  const pumpsTable = useTable(filtered.pumps, { searchFields: ["id", "name"] });
   const gatewayTable = useTable(gateway, { searchFields: ["id", "name"] });
 
   async function loadAll() {
+    api.zones.list().then(setZones).catch(() => {});
     const [s, e, r, v, p, g, errs] = await Promise.all([
       api.sensors.list(),
       api.executors.list(),
@@ -308,6 +337,18 @@ export default function PhysicalModules() {
         ))}
       </div>
 
+      {tab !== "gateway" && (
+        <div className="zone-filter">
+          <label htmlFor="zone-filter">Покажи само зона:</label>
+          <select id="zone-filter" value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)}>
+            <option value="">Всички зони</option>
+            {zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+            <option value="none">Без зона</option>
+          </select>
+          {zoneFilter && <button className="btn btn-sm" onClick={() => setZoneFilter("")}>Покажи всички</button>}
+        </div>
+      )}
+
       {tab === "sensors" && (
         <div className="table-card">
           <div className="table-toolbar">
@@ -332,7 +373,7 @@ export default function PhysicalModules() {
                   <tr key={s.id}>
                     <td><span className="id-tag mono">{s.id}</span></td>
                     <td>{s.name}</td>
-                    <td className="muted">{s.zone_id ? `Зона #${s.zone_id}` : "—"}</td>
+                    <td className="muted">{s.zone_id ? zoneName(s.zone_id) : "—"}</td>
                     <td className="muted">{s.repeater_id || "—"}</td>
                     <td><StatusChip item={s} kind="sensors" errors={openErrors} /></td>
                     <td>
@@ -450,7 +491,7 @@ export default function PhysicalModules() {
                     <tr key={v.id}>
                       <td><span className="id-tag mono">{v.id}</span></td>
                       <td>{v.name}</td>
-                      <td className="muted">{v.zone_id ? `Зона #${v.zone_id}` : "—"}</td>
+                      <td className="muted">{v.zone_id ? zoneName(v.zone_id) : "—"}</td>
                       <td className="muted">{v.pump_id || "—"}</td>
                       <td className="muted">{v.executor_id || "—"}</td>
                       <td className="muted mono">{v.opening_time_s}s</td>

@@ -502,7 +502,7 @@ tbody tr:hover { background: var(--bg); }
 .map-chip-id { font-weight: 800; font-size: 1rem; }
 
 /* compact map tiles - sensors close together must not cover each other */
-.site-map { min-width: 680px; }
+.site-map { min-width: 0; width: 100%; }
 .map-tile { width: 104px; padding: 5px 6px; gap: 0; }
 .map-tile:hover { z-index: 5; }
 .map-tile-head { line-height: 1.1; }
@@ -531,3 +531,41 @@ tbody tr:hover { background: var(--bg); }
 .map-pill { height: 21px; min-height: 0; padding: 0 7px; box-sizing: border-box; line-height: 1; }
 .map-pill-id { font-size: 0.75rem; }
 .map-pill-val { font-size: 0.82rem; }
+
+/* map fits the screen width (no sideways scrolling); taller on phones so pills have room */
+.site-map-scroll { overflow-x: visible; }
+.map-pill-card.card-right { left: auto; right: -8px; transform: none; }
+.map-pill-card.card-left { left: -8px; transform: none; }
+@media (max-width: 720px) {
+  .site-map { aspect-ratio: 4 / 5; }
+  .map-obj { font-size: 0.65rem; }
+  .map-pill-card { min-width: 170px; max-width: 220px; }
+  .map-chip { padding: 4px 6px 4px 10px; }
+  .map-chip-id { font-size: 0.85rem; }
+  .map-tile { width: 96px; }
+}
+
+/* generic map objects: neutral look, shape chosen by the admin */
+.obj-rect { background: #f0eee6; border-color: #8d8a7c; color: #4a473c; }
+.obj-circle { background: #e8eef4; border-color: #6f8aa3; color: #2f4a63; border-radius: 50%; }
+.obj-line { background: #cfcfca; border-color: #8d8d88; color: #3d3d39; border-radius: 3px; }
+.obj-add { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 8px; }
+.obj-add label, .obj-editor label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; }
+.obj-add label:first-child { flex: 1 1 260px; }
+.obj-presets { align-items: center; margin-bottom: 8px; }
+
+/* portal + admin-chosen colours (override the shape's own colours) */
+.obj-portal { background: #d9dde2; border-color: #55606b; color: #26303a; border-radius: 4px 4px 0 0; }
+.map-obj.col-green { background: #bfe3c6; border-color: #3f8f55; color: #1a4d2b; }
+.map-obj.col-blue { background: #bcd8f3; border-color: #2f74b5; color: #0b3e6f; }
+.map-obj.col-yellow { background: #f7e29a; border-color: #c9a21b; color: #6b5300; }
+.map-obj.col-orange { background: #f7c99a; border-color: #d9823b; color: #7a3d00; }
+.map-obj.col-red { background: #f1b3ae; border-color: #c4453c; color: #7a1a14; }
+.map-obj.col-brown { background: #d9c3a5; border-color: #8b6a3f; color: #4d3517; }
+.map-obj.col-purple { background: #d8c7ee; border-color: #7d55b8; color: #3f2270; }
+.map-obj.col-gray { background: #cfcfca; border-color: #6f6f6a; color: #33332f; }
+.color-pick { display: flex; align-items: center; gap: 8px; }
+.color-swatch { width: 26px; height: 26px; border-radius: 6px; border: 2px solid var(--border-strong); flex: none; }
+
+.zone-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.zone-filter label { font-weight: 600; }

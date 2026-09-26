@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { MAP_KINDS } from "../utils/mapObjects.js";
+import { useLayoutEffect, useRef, useState } from "react";
+import { objectLabel } from "../utils/mapObjects.js";
 
 // Full tile size in px. If any two sensors would overlap at this size, the
 // whole map switches to small pills (id + soil humidity); tap one for details.
@@ -13,11 +13,19 @@ export default function SensorMap({ sensors, layout, objects = [], readings, err
   const [size, setSize] = useState({ w: 680, h: 453 });
   const [open, setOpen] = useState(null); // sensor id whose detail card is open (compact mode)
 
-  useEffect(() => {
-    if (!mapRef.current) return undefined;
-    const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }));
-    ro.observe(mapRef.current);
-    return () => ro.disconnect();
+  // Measure right away (before paint) and again on resize / rotation.
+  useLayoutEffect(() => {
+    const el = mapRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0) setSize((old) => (old.w === r.width && old.h === r.height ? old : { w: r.width, h: r.height }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener("resize", measure);
+    return () => { ro.disconnect(); window.removeEventListener("resize", measure); };
   }, []);
 
   const at = Object.fromEntries(layout.map((i) => [i.sensor_id, i]));
@@ -41,9 +49,9 @@ export default function SensorMap({ sensors, layout, objects = [], readings, err
     <div className="site-map-scroll">
       <div className="site-map" ref={mapRef} onClick={() => setOpen(null)}>
         {objects.map((o, i) => (
-          <div key={i} className={`map-obj obj-${o.kind}`}
+          <div key={i} className={`map-obj obj-${o.kind} ${o.color ? `col-${o.color}` : ""}`}
                style={{ left: `${o.x}%`, top: `${o.y}%`, width: `${o.w}%`, height: `${o.h}%` }}>
-            <span className="map-obj-label">{o.label || MAP_KINDS[o.kind]?.label}</span>
+            <span className="map-obj-label">{objectLabel(o)}</span>
           </div>
         ))}
         {placed.map((s) => {
@@ -56,14 +64,16 @@ export default function SensorMap({ sensors, layout, objects = [], readings, err
 
           if (compact) {
             const isOpen = open === s.id;
+            // keep the pill fully inside the frame even for a sensor at the very edge
+            const pillStyle = { ...style, left: `clamp(54px, ${at[s.id].x}%, calc(100% - 54px))`, top: `clamp(14px, ${at[s.id].y}%, calc(100% - 14px))` };
             return (
-              <div key={s.id} className={`map-pill ${sev} ${isOpen ? "map-pill-open" : ""}`} style={style} title={title}
+              <div key={s.id} className={`map-pill ${sev} ${isOpen ? "map-pill-open" : ""}`} style={pillStyle} title={title}
                    onClick={(e) => { e.stopPropagation(); setOpen(isOpen ? null : s.id); }} role="button" tabIndex={0}
                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setOpen(isOpen ? null : s.id); }}>
                 <span className="mono map-pill-id">{flag}{s.id}</span>
                 <span className="map-pill-val">{last?.soil_h != null ? `${last.soil_h.toFixed(0)}%` : "—"}</span>
                 {isOpen && (
-                  <div className="map-pill-card" onClick={(e) => e.stopPropagation()}>
+                  <div className={`map-pill-card ${at[s.id].x > 62 ? "card-right" : at[s.id].x < 38 ? "card-left" : ""}`} onClick={(e) => e.stopPropagation()}>
                     <b>{s.name || s.id}</b>
                     <div>Почва: {fmt(last?.soil_h, 0)}% · {fmt(last?.soil_t)}°</div>
                     <div>Въздух: {fmt(last?.air_h, 0)}% · {fmt(last?.air_t)}°</div>

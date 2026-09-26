@@ -289,6 +289,7 @@ class SensorLayoutSet(BaseModel):
 class MapObjectItem(BaseModel):
     kind: str = Field(max_length=16)
     label: str = Field(default="", max_length=64)
+    color: str = Field(default="", max_length=16)
     x: float = Field(ge=0, le=100)
     y: float = Field(ge=0, le=100)
     w: float = Field(ge=2, le=100)

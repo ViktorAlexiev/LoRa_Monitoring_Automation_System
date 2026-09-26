@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import Modal from "./Modal.jsx";
-import { MAP_KINDS } from "../utils/mapObjects.js";
+import { MAP_KINDS, MAP_COLORS, objectLabel } from "../utils/mapObjects.js";
 
 const clamp = (v, lo = 0, hi = 100) => Math.min(hi, Math.max(lo, v));
 const STEP = 5; // snap step in percent of the map (grid lines are every 10 %)
@@ -21,6 +21,9 @@ export default function ZoneLayoutModal({ zone, sensors, onClose, onSaved = () =
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [snap, setSnap] = useState(true); // snap positions/sizes to the grid
+  const [newName, setNewName] = useState(""); // text of the object being added
+  const [newShape, setNewShape] = useState("rect");
+  const [newColor, setNewColor] = useState("");
   const q = (v) => (snap ? Math.round(v / STEP) * STEP : v);
 
   useEffect(() => {
@@ -55,11 +58,19 @@ export default function ZoneLayoutModal({ zone, sensors, onClose, onSaved = () =
     });
   }
 
-  function addObject(kind) {
+  function addObject(kind, label = "", color = "") {
     const k = MAP_KINDS[kind];
-    const o = { key: newKey(), kind, label: "", x: 50, y: 50, w: k.w, h: k.h };
+    const o = { key: newKey(), kind, label, color, x: q(50), y: q(50), w: k.w, h: k.h };
     setObjects((list) => [...list, o]);
     setSelected(o.key);
+  }
+
+  // "Add object": the admin types what it is and picks a rough shape.
+  function addNamed(e) {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    addObject(newShape, newName.trim(), newColor);
+    setNewName("");
   }
 
   function removeObject(key) {
@@ -109,7 +120,7 @@ export default function ZoneLayoutModal({ zone, sensors, onClose, onSaved = () =
       );
       await api.zones.saveMapObjects(
         zone.id,
-        objects.map((o) => ({ kind: o.kind, label: o.label, x: r1(o.x), y: r1(o.y), w: r1(o.w), h: r1(o.h) }))
+        objects.map((o) => ({ kind: o.kind, label: o.label, color: o.color || "", x: r1(o.x), y: r1(o.y), w: r1(o.w), h: r1(o.h) }))
       );
       onSaved();
       onClose();
@@ -131,10 +142,32 @@ export default function ZoneLayoutModal({ zone, sensors, onClose, onSaved = () =
         Залепване към мрежата (по-лесно за подреждане)
       </label>
 
-      <div className="section-title">Ориентири</div>
-      <div className="checks">
-        {Object.entries(MAP_KINDS).map(([kind, k]) => (
-          <button type="button" key={kind} className="check-chip" onClick={() => addObject(kind)}>+ {k.label}</button>
+      <div className="section-title">Добави обект на картата</div>
+      <form className="obj-add" onSubmit={addNamed}>
+        <label>Какво е? (напр. Склад, Кладенец, Ограда, Път)
+          <input value={newName} maxLength={64} onChange={(e) => setNewName(e.target.value)} placeholder="Напиши име…" />
+        </label>
+        <label>Форма
+          <select value={newShape} onChange={(e) => setNewShape(e.target.value)}>
+            {Object.entries(MAP_KINDS).filter(([, k]) => k.generic).map(([kind, k]) => (
+              <option key={kind} value={kind}>{k.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>Цвят
+          <span className="color-pick">
+            <span className="color-swatch" style={{ background: MAP_COLORS[newColor]?.swatch }} />
+            <select value={newColor} onChange={(e) => setNewColor(e.target.value)}>
+              {Object.entries(MAP_COLORS).map(([key, c]) => <option key={key} value={key}>{c.label}</option>)}
+            </select>
+          </span>
+        </label>
+        <button type="submit" className="btn btn-primary btn-sm" disabled={!newName.trim()}>+ Добави обект</button>
+      </form>
+      <div className="checks obj-presets">
+        <span className="muted">Бързо:</span>
+        {Object.entries(MAP_KINDS).filter(([, k]) => !k.generic && !k.hidden).map(([kind, k]) => (
+          <button type="button" key={kind} className="check-chip" onClick={() => addObject(kind, "", newColor)}>+ {k.label}</button>
         ))}
       </div>
 
@@ -143,11 +176,11 @@ export default function ZoneLayoutModal({ zone, sensors, onClose, onSaved = () =
              onPointerDown={() => setSelected(null)}>
           {objects.map((o) => (
             <div
-              key={o.key} className={`map-obj obj-${o.kind} ${selected === o.key ? "map-obj-selected" : ""}`}
+              key={o.key} className={`map-obj obj-${o.kind} ${o.color ? `col-${o.color}` : ""} ${selected === o.key ? "map-obj-selected" : ""}`}
               style={{ left: `${o.x}%`, top: `${o.y}%`, width: `${o.w}%`, height: `${o.h}%` }}
               onPointerDown={(e) => startDrag(e, "object", o.key, o)}
             >
-              <span className="map-obj-label">{o.label || MAP_KINDS[o.kind]?.label}</span>
+              <span className="map-obj-label">{objectLabel(o)}</span>
               {selected === o.key && (
                 <span className="map-obj-handle" onPointerDown={(e) => startDrag(e, "object", o.key, o, true)} aria-label="Промени размера" />
               )}
@@ -171,9 +204,24 @@ export default function ZoneLayoutModal({ zone, sensors, onClose, onSaved = () =
 
       {sel && (
         <div className="obj-editor">
-          <label>Име на „{MAP_KINDS[sel.kind]?.label}“
+          <label>Какво е
             <input value={sel.label} maxLength={64} placeholder={MAP_KINDS[sel.kind]?.label}
                    onChange={(e) => updateObject(sel.key, { label: e.target.value })} />
+          </label>
+          <label>Форма
+            <select value={sel.kind} onChange={(e) => updateObject(sel.key, { kind: e.target.value })}>
+              {Object.entries(MAP_KINDS).filter(([kind, k]) => !k.hidden || kind === sel.kind).map(([kind, k]) => (
+                <option key={kind} value={kind}>{k.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>Цвят
+            <span className="color-pick">
+              <span className="color-swatch" style={{ background: MAP_COLORS[sel.color || ""]?.swatch }} />
+              <select value={sel.color || ""} onChange={(e) => updateObject(sel.key, { color: e.target.value })}>
+                {Object.entries(MAP_COLORS).map(([key, c]) => <option key={key} value={key}>{c.label}</option>)}
+              </select>
+            </span>
           </label>
           <button type="button" className="btn btn-sm" onClick={() => removeObject(sel.key)}>Изтрий ориентира</button>
           <span className="muted">Размерът се сменя от точката в ъгъла.</span>

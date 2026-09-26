@@ -1,13 +1,33 @@
 // Rough landmarks the admin can drop on the site map. w/h are the default
 // size in percent of the map.
 export const MAP_KINDS = {
+  // generic shapes - the admin types what the object is
+  rect: { label: "Правоъгълник", w: 20, h: 14, generic: true },
+  circle: { label: "Кръг", w: 12, h: 12, generic: true },
+  line: { label: "Линия", w: 50, h: 3, generic: true },
+  // quick presets with a ready-made name
   building: { label: "Сграда", w: 18, h: 18 },
   greenhouse: { label: "Оранжерия", w: 30, h: 22 },
   field: { label: "Парцел", w: 30, h: 25 },
   gate: { label: "Вход", w: 9, h: 9 },
-  well: { label: "Кладенец", w: 9, h: 9 },
-  road: { label: "Път", w: 60, h: 6 },
-  trees: { label: "Дървета", w: 12, h: 12 },
+  portal: { label: "Портал", w: 14, h: 8 },
+  // no longer offered as quick presets, but zones that already use them keep drawing correctly
+  well: { label: "Кладенец", w: 9, h: 9, hidden: true },
+  road: { label: "Път", w: 60, h: 6, hidden: true },
+  trees: { label: "Дървета", w: 12, h: 12, hidden: true },
+};
+
+// Colours the admin can give an object ("" = the shape's own colour).
+export const MAP_COLORS = {
+  "": { label: "По подразбиране", swatch: "#e4e4dc" },
+  green: { label: "Зелен", swatch: "#bfe3c6" },
+  blue: { label: "Син", swatch: "#bcd8f3" },
+  yellow: { label: "Жълт", swatch: "#f7e29a" },
+  orange: { label: "Оранжев", swatch: "#f7c99a" },
+  red: { label: "Червен", swatch: "#f1b3ae" },
+  brown: { label: "Кафяв", swatch: "#d9c3a5" },
+  purple: { label: "Лилав", swatch: "#d8c7ee" },
+  gray: { label: "Сив", swatch: "#cfcfca" },
 };
 
 const ROW_BAND = 12; // sensors within this many % of the row's first sensor (vertically) share a row
@@ -56,4 +76,11 @@ export function sortByMap(sensors, layout) {
     if (!pb) return -1;
     return pa.row !== pb.row ? pa.row - pb.row : pa.col - pb.col;
   });
+}
+
+// Text shown on a landmark: what the admin typed; presets fall back to their
+// own name, generic shapes stay unlabelled until named.
+export function objectLabel(o) {
+  const k = MAP_KINDS[o.kind];
+  return o.label || (k && !k.generic ? k.label : "");
 }
