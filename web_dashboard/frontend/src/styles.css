@@ -569,3 +569,17 @@ tbody tr:hover { background: var(--bg); }
 
 .zone-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
 .zone-filter label { font-weight: 600; }
+
+/* emergency stop / history / data age */
+.btn-danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn-danger:hover { background: #7f1913; border-color: #7f1913; }
+.data-age { color: var(--ink-2); font-size: 0.9rem; margin: 6px 0; }
+.data-age-stale { color: #7a4d00; font-weight: 700; }
+.audit-emergency td { background: var(--bad-soft); font-weight: 700; }
+.zone-detail-head { align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.page-head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+.danger-zone { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 32px; padding-top: 16px; border-top: 2px solid var(--border); }
+.btn-danger-outline { background: var(--surface); border-color: var(--bad); color: var(--bad); }
+.btn-danger-outline:hover { background: var(--bad-soft); }

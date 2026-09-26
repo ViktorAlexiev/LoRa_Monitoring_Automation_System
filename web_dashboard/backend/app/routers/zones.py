@@ -4,8 +4,8 @@ from typing import List
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import models, pump_capacity, schemas
-from ..zone_stats import zone_averages
+from .. import audit, models, pump_capacity, schemas
+from ..zone_stats import zone_averages, zone_data_age_minutes
 from ..auth import accessible_zone_ids, get_current_user, require_role, require_zone_control, require_zone_view
 from ..database import get_db
 
@@ -59,6 +59,7 @@ def _zone_summary(zone: models.Zone) -> schemas.ZoneSummary:
     summary.readings = schemas.GaugeReadings(
         soil_t=avgs["soil_t"], soil_h=avgs["soil_h"], air_t=avgs["air_t"], air_h=avgs["air_h"],
         dew_point=_dew_point(avgs["air_t"], avgs["air_h"]),
+        data_age_minutes=zone_data_age_minutes(zone),
     )
     summary.modules = modules
     summary.open_error_count = len(open)
@@ -173,6 +174,35 @@ def _require_regime_configured(db: Session, zone: models.Zone, regime: str):
             )
 
 
+def _emergency_stop(db: Session, zone: models.Zone, user: models.User):
+    """Everything in the zone off, NOW, and the zone left in manual mode so no
+    schedule or threshold can start it again by itself - the operator has to
+    choose a mode deliberately afterwards."""
+    _start_force_off(zone)  # every valve desired=off, manual overrides cleared
+    zone.regime = "manual"
+    zone.pending_regime = None
+    zone.pending_is_active = None
+    zone.transition_status = "none"
+    # pumps: off right away unless another zone still needs them (the daemon
+    # would do the same on its next tick; doing it here closes that gap)
+    for valve in zone.valves:
+        if valve.pump:
+            valve.pump.desired_state = "on" if any(v.desired_state == "on" for v in valve.pump.valves) else "off"
+    audit.log(db, user, "emergency_stop", "АВАРИЙНО СПИРАНЕ — всички клапани и помпи са изключени, зоната е в ръчен режим",
+              zone=zone)
+
+
+@router.post("/{zone_id}/emergency-stop")
+def emergency_stop(zone_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    zone = db.get(models.Zone, zone_id)
+    if not zone:
+        raise HTTPException(404, "Not found")
+    require_zone_control(db, user, zone_id)
+    _emergency_stop(db, zone, user)
+    db.commit()
+    return {"ok": True, "zones": 1}
+
+
 @router.patch("/{zone_id}", response_model=schemas.ZoneOut)
 def update_zone(zone_id: int, payload: schemas.ZoneUpdate, db: Session = Depends(get_db),
                  user: models.User = Depends(get_current_user)):
@@ -203,6 +233,16 @@ def update_zone(zone_id: int, payload: schemas.ZoneUpdate, db: Session = Depends
     data = payload.model_dump(exclude_unset=True)
     target_regime = data.pop("regime", None)
     target_is_active = data.pop("is_active", None)
+    mode_bg = {"manual": "ръчен", "clock": "по време", "threshold": "по прагове"}
+    if target_regime is not None and target_regime != zone.regime:
+        audit.log(db, user, "regime_change", f"Режим: {mode_bg[zone.regime]} → {mode_bg[target_regime]}", zone=zone)
+    if target_is_active is not None and target_is_active != zone.is_active:
+        audit.log(db, user, "zone_activate" if target_is_active else "zone_deactivate",
+                  "Зоната е включена" if target_is_active else "Зоната е изключена", zone=zone)
+    limits = {"humidity_warn_min": "долна граница на влажност", "humidity_warn_max": "горна граница на влажност"}
+    for field, value in data.items():
+        if field in limits and getattr(zone, field) != value:
+            audit.log(db, user, "limits_change", f"Смени {limits[field]}: {getattr(zone, field)} → {value}", zone=zone)
     for field, value in data.items():
         setattr(zone, field, value)
 
@@ -475,6 +515,8 @@ def create_schedule(zone_id: int, payload: schemas.ZoneScheduleCreate, db: Sessi
     )
     db.add(obj)
     db.flush()
+    audit.log(db, user, "schedule_create",
+              f"Нов интервал {payload.start_time}–{payload.end_time}, клапани: {', '.join(payload.valve_ids)}", zone=zone)
     for vid in payload.valve_ids:
         db.add(models.ScheduleValve(schedule_id=obj.id, valve_id=vid))
     db.commit()
@@ -507,6 +549,9 @@ def update_schedule(zone_id: int, schedule_id: int, payload: schemas.ZoneSchedul
         db, payload.valve_ids, payload.start_time, payload.end_time, payload.days_mask,
         exclude_schedule_id=obj.id,
     )
+    audit.log(db, user, "schedule_update",
+              f"Интервал {obj.start_time}–{obj.end_time} → {payload.start_time}–{payload.end_time}, "
+              f"клапани: {', '.join(payload.valve_ids)}", zone=zone)
     obj.start_time = payload.start_time
     obj.end_time = payload.end_time
     obj.days_mask = payload.days_mask
@@ -537,6 +582,7 @@ def delete_schedule(zone_id: int, schedule_id: int, db: Session = Depends(get_db
                 "Това е последният график на зоната, която работи „По време“. "
                 "Първо смени режима или добави друг график.",
             )
+    audit.log(db, user, "schedule_delete", f"Изтрит интервал {obj.start_time}–{obj.end_time}", zone=zone)
     db.delete(obj)
     db.commit()
 
@@ -583,6 +629,9 @@ def upsert_threshold(zone_id: int, payload: schemas.ZoneThresholdCreate, db: Ses
     if obj is None:
         obj = models.ZoneThreshold(zone_id=zone_id, param=payload.param)
         db.add(obj)
+    audit.log(db, user, "threshold_set",
+              f"Праг за влажност: от {payload.min_val} до {payload.max_val}, поливане {payload.irrigation_duration_s} сек, "
+              f"клапани: {', '.join(payload.valve_ids)}", zone=zone)
     obj.min_val = payload.min_val
     obj.max_val = payload.max_val
     obj.irrigation_duration_s = payload.irrigation_duration_s
@@ -613,6 +662,7 @@ def delete_threshold(zone_id: int, param: str, db: Session = Depends(get_db),
             "Това е единственият праг на зоната, която работи „По прагове“. "
             "Първо смени режима или задай друг праг.",
         )
+    audit.log(db, user, "threshold_delete", "Изтрит праг за влажност", zone=zone)
     db.query(models.ThresholdValve).filter_by(zone_id=zone_id, param=param).delete()
     db.delete(obj)
     db.commit()

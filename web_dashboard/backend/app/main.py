@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .auth import get_current_user, hash_password
 from .database import Base, SessionLocal, engine, get_db
-from .routers import auth, config, devices, users, zones
+from .routers import audit, auth, config, devices, users, zones
 from .seed import seed
 
 # MySQL's official image does its first-boot init in two phases with an
@@ -236,6 +236,7 @@ app.include_router(zones.router)
 app.include_router(devices.router)
 app.include_router(users.router)
 app.include_router(config.router)
+app.include_router(audit.router)
 
 
 @app.get("/api/health")

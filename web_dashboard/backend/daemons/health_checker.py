@@ -121,6 +121,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app import models  # noqa: E402
 from app.config import CONFIG  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
+from app.zone_stats import zone_average  # noqa: E402
 
 
 TICK_SECONDS = 30
@@ -221,7 +222,7 @@ def _check_soil_moisture(db):
     for zone in db.query(models.Zone).filter_by(is_active=True).all():
         if zone.humidity_warn_min is None and zone.humidity_warn_max is None:
             continue
-        reading = _latest_reading_avg(zone, "soil_h")
+        reading = zone_average(zone, "soil_h")  # same number the dashboard shows
         if reading is None:
             continue
 

@@ -143,6 +143,25 @@ class ZoneMapObject(Base):
     zone = relationship("Zone", back_populates="map_objects")
 
 
+class AuditLog(Base):
+    """Who did what, when - human actions only (manual valve/pump commands,
+    mode changes, schedule/threshold edits, emergency stops). Names are
+    snapshots so the history stays readable after a user or zone is
+    renamed or deleted."""
+
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    at = Column(DateTime, default=now, index=True)
+    user_id = Column(Integer, nullable=True)
+    username = Column(String(64), default="")
+    display_name = Column(String(128), default="")
+    action = Column(String(32), nullable=False)
+    zone_id = Column(Integer, nullable=True, index=True)
+    zone_name = Column(String(128), default="")
+    detail = Column(Text, default="")
+
+
 class RepeaterSensor(Base):
     """Diagnostic-only link: which sensor is known to route through which repeater."""
 

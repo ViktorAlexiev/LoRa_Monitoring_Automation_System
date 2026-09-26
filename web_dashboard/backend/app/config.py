@@ -24,7 +24,7 @@ _DEFAULTS = {
         "infiltration_wait_s": 900,
     },
     "sensor_readings": {
-        "averaging_window_minutes": 15,
+        "averaging_window_minutes": 30,
         "history_limit": 100,
     },
     "refresh_intervals": {

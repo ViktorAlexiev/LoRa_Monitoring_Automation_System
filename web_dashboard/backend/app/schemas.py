@@ -82,6 +82,8 @@ class GaugeReadings(BaseModel):
     # Magnus-Tetens approximation from air_t/air_h - see routers/zones.py's
     # _dew_point. Null only when air_t/air_h themselves are unavailable.
     dew_point: Optional[float] = None
+    # Minutes since the newest reading from any sensor in the zone (None = never).
+    data_age_minutes: Optional[int] = None
 
 
 class ZoneErrorOut(ORMModel):
@@ -107,6 +109,17 @@ class SensorReadingOut(ORMModel):
     air_t: Optional[float] = None
     air_h: Optional[float] = None
     recorded_at: datetime.datetime
+
+
+class AuditOut(ORMModel):
+    id: int
+    at: datetime.datetime
+    username: str = ""
+    display_name: str = ""
+    action: str
+    zone_id: Optional[int] = None
+    zone_name: str = ""
+    detail: str = ""
 
 
 class ModuleRef(BaseModel):

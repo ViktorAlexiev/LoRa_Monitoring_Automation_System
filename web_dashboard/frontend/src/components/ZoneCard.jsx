@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import DewPoint from "./DewPoint.jsx";
+import DataAge from "./DataAge.jsx";
 import Gauge from "./Gauge.jsx";
 
 const MODE_LABEL = { manual: "Ръчен", clock: "По време", threshold: "По прагове" };
@@ -30,6 +31,7 @@ export default function ZoneCard({ zone }) {
         <Gauge label="Въздух RH" value={r.air_h} unit="%" />
       </div>
       <DewPoint readings={r} />
+      <DataAge minutes={r.data_age_minutes} />
       <div className="status-row">
         {zone.modules.map((m) => (
           <span key={`${m.kind}-${m.id}`} className="chip">

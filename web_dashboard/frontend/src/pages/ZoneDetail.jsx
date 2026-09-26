@@ -9,6 +9,8 @@ import SensorChart from "../components/SensorChart.jsx";
 import SensorMap from "../components/SensorMap.jsx";
 import { sortByMap, gridPlacement } from "../utils/mapObjects.js";
 import DewPoint from "../components/DewPoint.jsx";
+import DataAge from "../components/DataAge.jsx";
+import AuditTable from "../components/AuditTable.jsx";
 import Gauge from "../components/Gauge.jsx";
 import { nextTransition, fmtTransition } from "../utils/schedule.js";
 import { useAuth, zoneAccessLevel } from "../AuthContext.jsx";
@@ -19,6 +21,7 @@ const TABS = [
   { key: "overview", label: "Преглед" },
   { key: "sensors", label: "Сензори" },
   { key: "control", label: "Управление" },
+  { key: "history", label: "История" },
 ];
 
 const SENSOR_FAULT_VALUE = 255.0; // manual 2.1: "invalid this cycle" marker - never a real value, excluded everywhere
@@ -110,6 +113,8 @@ export default function ZoneDetail() {
   const [confirmRegime, setConfirmRegime] = useState(null); // newRegime string
   const [regimeError, setRegimeError] = useState(null);
   const [regimeNote, setRegimeNote] = useState(null); // refusal shown under the mode select
+  const [confirmStop, setConfirmStop] = useState(false);
+  const [stopError, setStopError] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [refreshSeconds, setRefreshSeconds] = useState(20);
 
@@ -183,6 +188,17 @@ export default function ZoneDetail() {
   async function changeRegime(regime) {
     await api.zones.update(zoneId, { regime });
     loadAll();
+  }
+
+  async function doEmergencyStop() {
+    try {
+      await api.zones.emergencyStop(zoneId);
+      setConfirmStop(false);
+      setStopError(null);
+      loadAll();
+    } catch (err) {
+      setStopError(err.message);
+    }
   }
 
   async function doContinueTransition() {
@@ -266,7 +282,7 @@ export default function ZoneDetail() {
   const zonePumps = pumps.filter((p) => zonePumpIds.has(p.id));
   const transitioning = zone.transition_status !== "none";
   const canManage = zoneAccessLevel(user, zoneId) === "control";
-  const visibleTabs = TABS.filter((t) => t.key !== "control" || canManage);
+  const visibleTabs = TABS.filter((t) => (t.key !== "control" && t.key !== "history") || canManage);
 
   return (
     <main className="view">
@@ -307,6 +323,7 @@ export default function ZoneDetail() {
       {tab === "overview" && (
         <div>
           <DewPoint readings={zone.readings} />
+          <DataAge minutes={zone.readings?.data_age_minutes} />
           <div className="gauge-row">
             <Gauge label="Почва T°" value={zone.readings?.soil_t} unit="°" />
             <Gauge label="Почва RH" value={zone.readings?.soil_h} unit="%"
@@ -383,6 +400,13 @@ export default function ZoneDetail() {
           {sensors.length === 0 && <p className="muted">Няма сензори в тая зона.</p>}
           </div>
         </div>
+      )}
+
+      {tab === "history" && canManage && (
+        <>
+          <p className="muted">Кой, кога и какво е правил в тази зона.</p>
+          <AuditTable zoneId={zoneId} />
+        </>
       )}
 
       {tab === "control" && canManage && (
@@ -465,10 +489,28 @@ export default function ZoneDetail() {
             })}
             {zonePumps.length === 0 && <p className="muted">Няма помпи, обслужващи тая зона.</p>}
           </div>
+          <div className="danger-zone">
+            <button className="btn btn-danger-outline" onClick={() => { setConfirmStop(true); setStopError(null); }}>
+              Аварийно спиране на зоната
+            </button>
+            <span className="muted">Изключва всички клапани и помпи веднага и оставя зоната в ръчен режим.</span>
+          </div>
         </fieldset>
       )}
 
       {settingsOpen && <ZoneSettingsModal zone={zone} valves={valves} onClose={() => setSettingsOpen(false)} onSaved={loadAll} />}
+
+      {confirmStop && (
+        <ConfirmDialog
+          title="Аварийно спиране"
+          message={`Всички клапани и помпи на „${zone.name}“ ще бъдат изключени веднага, а зоната ще остане в ръчен режим — нищо няма да тръгне само. След това сам избираш какво да се пуска. Продължаваш ли?`}
+          confirmLabel="Спри всичко в зоната"
+          danger
+          error={stopError}
+          onConfirm={doEmergencyStop}
+          onCancel={() => { setConfirmStop(false); setStopError(null); }}
+        />
+      )}
 
       {confirmRegime && (
         <ConfirmDialog

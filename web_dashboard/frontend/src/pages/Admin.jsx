@@ -4,6 +4,7 @@ import PhysicalModules from "./admin/PhysicalModules.jsx";
 import Zones from "./admin/Zones.jsx";
 import Users from "./admin/Users.jsx";
 import Settings from "./admin/Settings.jsx";
+import History from "./admin/History.jsx";
 
 export default function Admin() {
   // Sidebar becomes a collapsible drawer below the "sidebar-breakpoint" width
@@ -27,6 +28,9 @@ export default function Admin() {
         <NavLink to="/admin/users" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`} onClick={() => setMenuOpen(false)}>
           <span className="nav-icon">&#128101;</span> Потребители
         </NavLink>
+        <NavLink to="/admin/history" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`} onClick={() => setMenuOpen(false)}>
+          <span className="nav-icon">&#128339;</span> История
+        </NavLink>
         <NavLink to="/admin/settings" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`} onClick={() => setMenuOpen(false)}>
           <span className="nav-icon">&#128295;</span> Настройки
         </NavLink>
@@ -37,6 +41,7 @@ export default function Admin() {
           <Route path="devices" element={<PhysicalModules />} />
           <Route path="zones" element={<Zones />} />
           <Route path="users" element={<Users />} />
+          <Route path="history" element={<History />} />
           <Route path="settings" element={<Settings />} />
         </Routes>
       </main>

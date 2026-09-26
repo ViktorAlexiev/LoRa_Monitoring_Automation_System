@@ -63,6 +63,7 @@ export const api = {
     saveMapObjects: (id, objects) => request(`/zones/${id}/objects`, { method: "PUT", body: JSON.stringify({ objects }) }),
     saveLayout: (id, items) => request(`/zones/${id}/layout`, { method: "PUT", body: JSON.stringify({ items }) }),
     errors: (id) => request(`/zones/${id}/errors`),
+    emergencyStop: (id) => request(`/zones/${id}/emergency-stop`, { method: "POST" }),
     continueTransition: (id) => request(`/zones/${id}/transition/continue`, { method: "POST" }),
     deactivateFromTransition: (id) => request(`/zones/${id}/transition/deactivate`, { method: "POST" }),
   },
@@ -117,6 +118,14 @@ export const api = {
   config: {
     get: () => request("/config"),
     update: (data) => request("/config", { method: "PATCH", body: JSON.stringify(data) }),
+  },
+  audit: {
+    list: ({ zoneId, limit = 100, beforeId } = {}) => {
+      const q = new URLSearchParams({ limit });
+      if (zoneId) q.set("zone_id", zoneId);
+      if (beforeId) q.set("before_id", beforeId);
+      return request(`/audit?${q}`);
+    },
   },
   errors: {
     network: () => request("/errors/network"),
