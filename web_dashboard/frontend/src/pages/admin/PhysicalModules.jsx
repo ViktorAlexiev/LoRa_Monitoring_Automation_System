@@ -37,7 +37,7 @@ function StateChip({ value }) {
 
 // "Активен" used to mean only "switched on by the admin" - it stayed green
 // even for a dead device. Now: switched off > has an open problem > works.
-function StatusChip({ item, kind, errors }) {
+function StatusChip({ item, kind, errors, onlyProblems = false }) {
   const [open, setOpen] = useState(false);
   if (!item.is_active) {
     return <span className="chip"><span className="dot dot-off"></span>Изключен</span>;
@@ -45,6 +45,9 @@ function StatusChip({ item, kind, errors }) {
   const field = { sensors: "sensor_id", executors: "executor_id", repeaters: "repeater_id", valves: "valve_id", pumps: "pump_id" }[kind];
   const mine = errors.filter((e) => (field ? e[field] === item.id : e.error_code === "GATEWAY_OFFLINE"));
   if (!mine.length) {
+    // valves/pumps already show their own on/off state - a second green
+    // "Работи" chip next to a closed valve just confuses
+    if (onlyProblems) return null;
     return <span className="chip"><span className="dot dot-ok"></span>Работи</span>;
   }
   const worst = mine.find((e) => e.severity === "critical") || mine.find((e) => e.severity === "error") || mine[0];
@@ -452,7 +455,7 @@ export default function PhysicalModules() {
                       <td className="muted">{v.executor_id || "—"}</td>
                       <td className="muted mono">{v.opening_time_s}s</td>
                       <td className="muted mono">{v.closing_time_s}s</td>
-                      <td><StateChip value={v.current_state === "on" ? "Отворен" : "Затворен"} /> <StatusChip item={v} kind="valves" errors={openErrors} /></td>
+                      <td><StateChip value={v.current_state === "on" ? "Отворен" : "Затворен"} /> <StatusChip item={v} kind="valves" errors={openErrors} onlyProblems /></td>
                       <td className="muted mono">{fmtTime(v.current_updated_at)}</td>
                       <td>
                         <button className="btn btn-sm" onClick={() => openEdit("valves", v)}>Редактирай</button>
@@ -498,7 +501,7 @@ export default function PhysicalModules() {
                     <td className="muted">{p.max_simultaneous_valves}</td>
                     <td className="muted mono">{p.startup_time_s}s</td>
                     <td className="muted mono">{p.shutdown_time_s}s</td>
-                    <td><StateChip value={p.current_state === "on" ? "Включена" : "Изключена"} /> <StatusChip item={p} kind="pumps" errors={openErrors} /></td>
+                    <td><StateChip value={p.current_state === "on" ? "Включена" : "Изключена"} /> <StatusChip item={p} kind="pumps" errors={openErrors} onlyProblems /></td>
                     <td className="muted mono">{fmtTime(p.current_updated_at)}</td>
                     <td>
                       <button className="btn btn-sm" onClick={() => openEdit("pumps", p)}>Редактирай</button>

@@ -54,6 +54,7 @@ class Zone(Base):
     sensors = relationship("Sensor", back_populates="zone")
     valves = relationship("Valve", back_populates="zone")
     schedules = relationship("ZoneSchedule", back_populates="zone", cascade="all, delete-orphan")
+    map_objects = relationship("ZoneMapObject", back_populates="zone", cascade="all, delete-orphan")
     thresholds = relationship("ZoneThreshold", back_populates="zone", cascade="all, delete-orphan")
     errors = relationship("ZoneError", back_populates="zone", cascade="all, delete-orphan")
     events = relationship("ZoneEvent", back_populates="zone", cascade="all, delete-orphan")
@@ -104,6 +105,41 @@ class Sensor(Base):
     zone = relationship("Zone", back_populates="sensors")
     readings = relationship("SensorReading", back_populates="sensor", cascade="all, delete-orphan")
     repeaters = relationship("RepeaterSensor", back_populates="sensor", cascade="all, delete-orphan")
+    layout = relationship("SensorLayout", back_populates="sensor", uselist=False, cascade="all, delete-orphan")
+
+
+class SensorLayout(Base):
+    """Where a sensor sits on the zone's site map (admin arranges it to mirror
+    the real layout of the site). x/y are percentages of the map, 0-100.
+    A separate table (not columns on sensors) so existing databases pick it up
+    through create_all without a migration."""
+
+    __tablename__ = "sensor_layout"
+
+    sensor_id = Column(String(6), ForeignKey("sensors.id"), primary_key=True)
+    x = Column(Float, nullable=False)
+    y = Column(Float, nullable=False)
+
+    sensor = relationship("Sensor", back_populates="layout")
+
+
+class ZoneMapObject(Base):
+    """A rough landmark drawn on the zone's site map (building, gate, well,
+    road, ...) so the worker can orient himself. Position/size are percentages
+    of the map. Cosmetic only."""
+
+    __tablename__ = "zone_map_objects"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    zone_id = Column(Integer, ForeignKey("zones.id"), nullable=False)
+    kind = Column(String(16), nullable=False)
+    label = Column(String(64), default="")
+    x = Column(Float, nullable=False)
+    y = Column(Float, nullable=False)
+    w = Column(Float, nullable=False)
+    h = Column(Float, nullable=False)
+
+    zone = relationship("Zone", back_populates="map_objects")
 
 
 class RepeaterSensor(Base):

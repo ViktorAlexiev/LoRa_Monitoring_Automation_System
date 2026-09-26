@@ -1,3 +1,5 @@
+import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -440,13 +442,24 @@ def send_valve_command(valve_id: str, payload: schemas.ValveCommandCreate, db: S
 
 
 @router.get("/sensors/{sensor_id}/readings", response_model=list[schemas.SensorReadingOut])
-def get_sensor_readings(sensor_id: str, limit: int = None, db: Session = Depends(get_db),
+def get_sensor_readings(sensor_id: str, limit: int = None, hours: int = None, db: Session = Depends(get_db),
                          user: models.User = Depends(get_current_user)):
     sensor = db.get(models.Sensor, sensor_id)
     if not sensor:
         raise HTTPException(404, "Not found")
     if sensor.zone_id is not None:
         require_zone_view(db, user, sensor.zone_id)
+    if hours is not None:
+        # time-window mode (chart periods 24 h / 7 d / 30 d): everything in the
+        # window, oldest first, capped so a runaway request can't dump the table
+        since = datetime.datetime.utcnow() - datetime.timedelta(hours=min(max(hours, 1), 24 * 90))
+        return (
+            db.query(models.SensorReading)
+            .filter(models.SensorReading.sensor_id == sensor_id, models.SensorReading.recorded_at >= since)
+            .order_by(models.SensorReading.recorded_at.asc())
+            .limit(50000)
+            .all()
+        )
     if limit is None:
         limit = config.CONFIG["sensor_readings"]["history_limit"]
     rows = (

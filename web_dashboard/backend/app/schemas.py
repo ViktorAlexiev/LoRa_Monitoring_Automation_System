@@ -276,6 +276,29 @@ class ValveCommandCreate(BaseModel):
 
 # ---------------------------------------------------------- zone regime ----
 
+class SensorLayoutItem(BaseModel):
+    sensor_id: str
+    x: float = Field(ge=0, le=100)
+    y: float = Field(ge=0, le=100)
+
+
+class SensorLayoutSet(BaseModel):
+    items: List[SensorLayoutItem] = []
+
+
+class MapObjectItem(BaseModel):
+    kind: str = Field(max_length=16)
+    label: str = Field(default="", max_length=64)
+    x: float = Field(ge=0, le=100)
+    y: float = Field(ge=0, le=100)
+    w: float = Field(ge=2, le=100)
+    h: float = Field(ge=2, le=100)
+
+
+class MapObjectsSet(BaseModel):
+    objects: List[MapObjectItem] = []
+
+
 class ZoneScheduleCreate(BaseModel):
     start_time: str
     end_time: str

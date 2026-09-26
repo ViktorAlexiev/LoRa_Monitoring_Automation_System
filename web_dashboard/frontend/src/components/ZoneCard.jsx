@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import DewPoint from "./DewPoint.jsx";
 import Gauge from "./Gauge.jsx";
 
 const MODE_LABEL = { manual: "Ръчен", clock: "По време", threshold: "По прагове" };
@@ -28,10 +29,7 @@ export default function ZoneCard({ zone }) {
         <Gauge label="Въздух T°" value={r.air_t} unit="°" />
         <Gauge label="Въздух RH" value={r.air_h} unit="%" />
       </div>
-      <div className="dew-point-row">
-        <span className="lbl">Точка на оросяване</span>
-        <span className="val">{r.dew_point != null ? `${r.dew_point.toFixed(1)}°` : "—"}</span>
-      </div>
+      <DewPoint readings={r} />
       <div className="status-row">
         {zone.modules.map((m) => (
           <span key={`${m.kind}-${m.id}`} className="chip">

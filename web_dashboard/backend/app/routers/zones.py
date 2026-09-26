@@ -86,7 +86,12 @@ def get_zone(zone_id: int, db: Session = Depends(get_db), user: models.User = De
 
 @router.post("", response_model=schemas.ZoneOut, status_code=201, dependencies=[Depends(require_role("admin"))])
 def create_zone(payload: schemas.ZoneCreate, db: Session = Depends(get_db)):
-    zone = models.Zone(**payload.model_dump(), is_active=False)
+    # A brand-new zone has no valves/schedules/thresholds yet, so it can only
+    # start in manual mode - "по време"/"по прагове" are switched on later,
+    # once they're set up (see _require_regime_configured).
+    data = payload.model_dump()
+    data["regime"] = "manual"
+    zone = models.Zone(**data, is_active=False)
     db.add(zone)
     db.commit()
     db.refresh(zone)
@@ -138,6 +143,12 @@ def _require_no_transition(zone: models.Zone):
 def _require_regime_configured(db: Session, zone: models.Zone, regime: str):
     """A zone must not run in "по време" / "по прагове" with nothing set up -
     it would just sit there doing nothing while looking like it's working."""
+    if regime in ("clock", "threshold") and not zone.valves:
+        raise HTTPException(
+            400,
+            "Тази зона няма клапани, затова не може да работи „По време“ или „По прагове“. "
+            "Първо добави клапани към нея.",
+        )
     if regime == "clock":
         ok = any(sch.enabled and sch.valve_links for sch in zone.schedules)
         if not ok:
@@ -179,7 +190,10 @@ def update_zone(zone_id: int, payload: schemas.ZoneUpdate, db: Session = Depends
 
     final_active = payload.is_active if payload.is_active is not None else zone.is_active
     final_regime = payload.regime if payload.regime is not None else zone.regime
-    if final_active and (activating or payload.regime is not None):
+    # Checked whether or not the zone is active right now: an inactive zone
+    # switched to "по време"/"по прагове" with nothing configured would just
+    # fail later, on activation.
+    if final_regime != "manual" and (activating or (payload.regime is not None and payload.regime != zone.regime)):
         _require_regime_configured(db, zone, final_regime)
 
     # A zone with no sensors (e.g. a purely manual valve someone flips by
@@ -305,6 +319,7 @@ def delete_zone(zone_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Not found")
     for sensor in zone.sensors:
         sensor.zone_id = None
+        sensor.layout = None
     for valve in list(zone.valves):
         _detach_valve_from_zone(db, valve)
     db.query(models.UserZoneAccess).filter_by(zone_id=zone_id).delete(synchronize_session=False)
@@ -359,6 +374,8 @@ def assign_sensors(zone_id: int, sensor_ids: List[str] = Body(embed=True), db: S
             raise HTTPException(400, f"Unknown sensor {sid}")
         if sensor.zone_id is not None and sensor.zone_id != zone_id:
             _require_source_zone_inactive(sensor.zone)
+        if sensor.zone_id != zone_id:
+            sensor.layout = None  # its spot on the old zone's map means nothing here
         sensor.zone_id = zone_id
     db.commit()
     return {"ok": True}
@@ -374,6 +391,7 @@ def unassign_sensor(zone_id: int, sensor_id: str, db: Session = Depends(get_db))
     if not sensor or sensor.zone_id != zone_id:
         raise HTTPException(404, "Not found in this zone")
     sensor.zone_id = None
+    sensor.layout = None
     db.commit()
     return {"ok": True}
 
@@ -440,6 +458,8 @@ def create_schedule(zone_id: int, payload: schemas.ZoneScheduleCreate, db: Sessi
     _require_no_transition(zone)
     if not payload.valve_ids:
         raise HTTPException(400, "Интервалът трябва да отваря поне един клапан")
+    if payload.start_time >= payload.end_time:
+        raise HTTPException(400, "Краят на интервала трябва да е след началото")
     zone_valve_ids = {v.id for v in zone.valves}
     for vid in payload.valve_ids:
         if vid not in zone_valve_ids:
@@ -455,6 +475,43 @@ def create_schedule(zone_id: int, payload: schemas.ZoneScheduleCreate, db: Sessi
     )
     db.add(obj)
     db.flush()
+    for vid in payload.valve_ids:
+        db.add(models.ScheduleValve(schedule_id=obj.id, valve_id=vid))
+    db.commit()
+    db.refresh(obj)
+    item = schemas.ZoneScheduleOut.model_validate(obj)
+    item.valve_ids = payload.valve_ids
+    return item
+
+
+@router.put("/{zone_id}/schedules/{schedule_id}", response_model=schemas.ZoneScheduleOut)
+def update_schedule(zone_id: int, schedule_id: int, payload: schemas.ZoneScheduleCreate,
+                     db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """Edit an existing interval in place (same checks as creating one, but it
+    doesn't conflict with itself)."""
+    zone = db.get(models.Zone, zone_id)
+    obj = db.get(models.ZoneSchedule, schedule_id)
+    if not zone or not obj or obj.zone_id != zone_id:
+        raise HTTPException(404, "Not found")
+    require_zone_control(db, user, zone_id)
+    _require_no_transition(zone)
+    if not payload.valve_ids:
+        raise HTTPException(400, "Интервалът трябва да отваря поне един клапан")
+    if payload.start_time >= payload.end_time:
+        raise HTTPException(400, "Краят на интервала трябва да е след началото")
+    zone_valve_ids = {v.id for v in zone.valves}
+    for vid in payload.valve_ids:
+        if vid not in zone_valve_ids:
+            raise HTTPException(400, f"Valve {vid} is not assigned to this zone")
+    pump_capacity.check_new_schedule_fits(
+        db, payload.valve_ids, payload.start_time, payload.end_time, payload.days_mask,
+        exclude_schedule_id=obj.id,
+    )
+    obj.start_time = payload.start_time
+    obj.end_time = payload.end_time
+    obj.days_mask = payload.days_mask
+    obj.enabled = payload.enabled
+    db.query(models.ScheduleValve).filter_by(schedule_id=obj.id).delete()
     for vid in payload.valve_ids:
         db.add(models.ScheduleValve(schedule_id=obj.id, valve_id=vid))
     db.commit()
@@ -539,3 +596,88 @@ def upsert_threshold(zone_id: int, payload: schemas.ZoneThresholdCreate, db: Ses
     item = schemas.ZoneThresholdOut.model_validate(obj)
     item.valve_ids = payload.valve_ids
     return item
+
+
+@router.delete("/{zone_id}/thresholds/{param}", status_code=204)
+def delete_threshold(zone_id: int, param: str, db: Session = Depends(get_db),
+                      user: models.User = Depends(get_current_user)):
+    zone = db.get(models.Zone, zone_id)
+    obj = db.get(models.ZoneThreshold, (zone_id, param))
+    if not zone or not obj:
+        raise HTTPException(404, "Not found")
+    require_zone_control(db, user, zone_id)
+    _require_no_transition(zone)
+    if zone.is_active and zone.regime == "threshold" and len(zone.thresholds) <= 1:
+        raise HTTPException(
+            400,
+            "Това е единственият праг на зоната, която работи „По прагове“. "
+            "Първо смени режима или задай друг праг.",
+        )
+    db.query(models.ThresholdValve).filter_by(zone_id=zone_id, param=param).delete()
+    db.delete(obj)
+    db.commit()
+
+
+# ------------------------------------------------------------- sensor map ----
+
+@router.get("/{zone_id}/layout", response_model=List[schemas.SensorLayoutItem])
+def get_layout(zone_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    zone = db.get(models.Zone, zone_id)
+    if not zone:
+        raise HTTPException(404, "Zone not found")
+    require_zone_view(db, user, zone_id)
+    return [
+        schemas.SensorLayoutItem(sensor_id=s.id, x=s.layout.x, y=s.layout.y)
+        for s in zone.sensors if s.layout is not None
+    ]
+
+
+@router.put("/{zone_id}/layout", response_model=List[schemas.SensorLayoutItem],
+            dependencies=[Depends(require_role("admin"))])
+def set_layout(zone_id: int, payload: schemas.SensorLayoutSet, db: Session = Depends(get_db)):
+    """Replaces the whole map of the zone: sensors listed get that position,
+    zone sensors not listed are taken off the map. Purely cosmetic, so it is
+    allowed whether or not the zone is active."""
+    zone = db.get(models.Zone, zone_id)
+    if not zone:
+        raise HTTPException(404, "Zone not found")
+    by_id = {s.id: s for s in zone.sensors}
+    wanted = {}
+    for item in payload.items:
+        if item.sensor_id not in by_id:
+            raise HTTPException(400, f"Сензор {item.sensor_id} не е в тази зона")
+        wanted[item.sensor_id] = item
+    for sid, sensor in by_id.items():
+        if sid in wanted:
+            if sensor.layout is None:
+                sensor.layout = models.SensorLayout(x=wanted[sid].x, y=wanted[sid].y)
+            else:
+                sensor.layout.x = wanted[sid].x
+                sensor.layout.y = wanted[sid].y
+        elif sensor.layout is not None:
+            sensor.layout = None
+    db.commit()
+    return list(wanted.values())
+
+
+@router.get("/{zone_id}/objects", response_model=List[schemas.MapObjectItem])
+def get_map_objects(zone_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    zone = db.get(models.Zone, zone_id)
+    if not zone:
+        raise HTTPException(404, "Zone not found")
+    require_zone_view(db, user, zone_id)
+    return [schemas.MapObjectItem(kind=o.kind, label=o.label or "", x=o.x, y=o.y, w=o.w, h=o.h) for o in zone.map_objects]
+
+
+@router.put("/{zone_id}/objects", response_model=List[schemas.MapObjectItem],
+            dependencies=[Depends(require_role("admin"))])
+def set_map_objects(zone_id: int, payload: schemas.MapObjectsSet, db: Session = Depends(get_db)):
+    """Replaces all landmarks of the zone's map (cosmetic, always allowed)."""
+    zone = db.get(models.Zone, zone_id)
+    if not zone:
+        raise HTTPException(404, "Zone not found")
+    if len(payload.objects) > 60:
+        raise HTTPException(400, "Твърде много обекти на картата (максимум 60)")
+    zone.map_objects = [models.ZoneMapObject(**o.model_dump()) for o in payload.objects]
+    db.commit()
+    return payload.objects

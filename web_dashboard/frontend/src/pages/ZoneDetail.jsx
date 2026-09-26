@@ -6,6 +6,9 @@ import ZoneSettingsModal from "../components/ZoneSettingsModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Modal from "../components/Modal.jsx";
 import SensorChart from "../components/SensorChart.jsx";
+import SensorMap from "../components/SensorMap.jsx";
+import { sortByMap, gridPlacement } from "../utils/mapObjects.js";
+import DewPoint from "../components/DewPoint.jsx";
 import Gauge from "../components/Gauge.jsx";
 import { nextTransition, fmtTransition } from "../utils/schedule.js";
 import { useAuth, zoneAccessLevel } from "../AuthContext.jsx";
@@ -51,31 +54,35 @@ function robustMean(values, zThresh = 2.0) {
 // mean (see above) of whatever fell into each window. Empty windows are
 // left as gaps (null) rather than interpolated, since we have no real data
 // for a period nothing reported for.
-function buildAverageSeries(sensorList, readingsMap, attr, bucketCount = 40) {
-  const points = [];
+function buildAverageSeries(sensorList, readingsMap, attr, tStart, tEnd, bucketCount) {
+  const span = tEnd - tStart || 1;
+  const buckets = Array.from({ length: bucketCount }, () => []);
+  let any = false;
   for (const s of sensorList) {
     for (const r of readingsMap[s.id] || []) {
       const v = r[attr];
       if (v === null || v === undefined || v === SENSOR_FAULT_VALUE) continue;
-      points.push({ t: new Date(r.recorded_at).getTime(), v });
+      const t = new Date(r.recorded_at).getTime();
+      if (t < tStart || t > tEnd) continue;
+      const idx = Math.min(bucketCount - 1, Math.floor(((t - tStart) / span) * bucketCount));
+      buckets[idx].push(v);
+      any = true;
     }
   }
-  if (points.length === 0) return [];
-  points.sort((a, b) => a.t - b.t);
-  const tMin = points[0].t;
-  const tMax = points[points.length - 1].t;
-  const span = tMax - tMin || 1;
-
-  const buckets = Array.from({ length: bucketCount }, () => []);
-  for (const p of points) {
-    const idx = Math.min(bucketCount - 1, Math.floor(((p.t - tMin) / span) * bucketCount));
-    buckets[idx].push(p.v);
-  }
+  if (!any) return [];
   return buckets.map((vals, i) => ({
     value: vals.length > 0 ? robustMean(vals) : null,
-    t: new Date(tMin + ((i + 0.5) / bucketCount) * span),
+    t: new Date(tStart + ((i + 0.5) / bucketCount) * span),
   }));
 }
+
+// Chart periods: hours of history and how many time buckets to draw
+// (24 h -> 30-min buckets, 7 d -> 3-hour buckets, 30 d -> 12-hour buckets).
+const PERIODS = {
+  "24h": { label: "24 часа", hours: 24, buckets: 48 },
+  "7d": { label: "7 дни", hours: 24 * 7, buckets: 56 },
+  "30d": { label: "30 дни", hours: 24 * 30, buckets: 60 },
+};
 
 export default function ZoneDetail() {
   const { id } = useParams();
@@ -86,6 +93,12 @@ export default function ZoneDetail() {
   const [zone, setZone] = useState(null);
   const [sensors, setSensors] = useState([]);
   const [readings, setReadings] = useState({}); // sensor_id -> [readings]
+  const [layout, setLayout] = useState([]); // sensor positions on the site map
+  const [mapObjects, setMapObjects] = useState([]); // landmarks drawn on the site map
+  const [sensorView, setSensorView] = useState("list"); // "list" (default) | "map"
+  const [period, setPeriod] = useState("24h");
+  const [chartReadings, setChartReadings] = useState({}); // sensor_id -> readings for the chosen period
+  const [chartEnd, setChartEnd] = useState(() => Date.now());
   const [valves, setValves] = useState([]);
   const [allValves, setAllValves] = useState([]);
   const [allZones, setAllZones] = useState([]);
@@ -96,12 +109,13 @@ export default function ZoneDetail() {
   const [busyPopup, setBusyPopup] = useState(null); // message string | null — manual-mode block, no DB warning
   const [confirmRegime, setConfirmRegime] = useState(null); // newRegime string
   const [regimeError, setRegimeError] = useState(null);
+  const [regimeNote, setRegimeNote] = useState(null); // refusal shown under the mode select
   const [loadError, setLoadError] = useState(null);
   const [refreshSeconds, setRefreshSeconds] = useState(20);
 
   async function loadAll() {
     try {
-      const [z, allSensors, valvesEverywhere, allPumps, sch, errs, zonesEverywhere] = await Promise.all([
+      const [z, allSensors, valvesEverywhere, allPumps, sch, errs, zonesEverywhere, lay, objs] = await Promise.all([
         api.zones.get(zoneId),
         api.sensors.list(),
         api.valves.list(),
@@ -109,7 +123,11 @@ export default function ZoneDetail() {
         api.zones.schedules(zoneId),
         api.zones.errors(zoneId),
         api.zones.list(),
+        api.zones.layout(zoneId).catch(() => []),
+        api.zones.mapObjects(zoneId).catch(() => []),
       ]);
+      setLayout(lay);
+      setMapObjects(objs);
       setZone(z);
       const zoneSensors = allSensors.filter((s) => s.zone_id === zoneId);
       setSensors(zoneSensors);
@@ -133,6 +151,27 @@ export default function ZoneDetail() {
   useEffect(() => {
     api.config.get().then((c) => setRefreshSeconds(c.refresh_intervals.zone_detail_seconds)).catch(() => {});
   }, []);
+
+  // Chart history for the selected period - separate from the 20 s refresh
+  // above (30 days of readings is too heavy to re-fetch that often).
+  useEffect(() => {
+    if (sensors.length === 0) return undefined;
+    let cancelled = false;
+    async function loadChart() {
+      try {
+        const entries = await Promise.all(
+          sensors.map(async (s) => [s.id, await api.sensors.readingsSince(s.id, PERIODS[period].hours)])
+        );
+        if (!cancelled) {
+          setChartReadings(Object.fromEntries(entries));
+          setChartEnd(Date.now());
+        }
+      } catch (err) { /* keep the previous chart on a failed refresh */ }
+    }
+    loadChart();
+    const t = setInterval(loadChart, 60000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [period, sensors.map((s) => s.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     loadAll();
@@ -158,11 +197,12 @@ export default function ZoneDetail() {
 
   function requestRegimeChange(newRegime) {
     if (newRegime === zone.regime) return;
+    setRegimeNote(null);
     if (zone.is_active) {
       setConfirmRegime(newRegime);
       setRegimeError(null);
     } else {
-      changeRegime(newRegime);
+      changeRegime(newRegime).catch((err) => setRegimeNote(err.message));
     }
   }
 
@@ -215,6 +255,13 @@ export default function ZoneDetail() {
     );
   }
 
+  // grid cell of a sensor in the "same arrangement as the map" list
+  const gp = gridPlacement(sensors, layout);
+  function mapCell(id) {
+    const p = gp.place[id];
+    return p ? { "--r": p.row, "--c": p.col } : { "--r": gp.rows + 1 }; // not on the map: below the grid
+  }
+
   const zonePumpIds = new Set(valves.map((v) => v.pump_id).filter(Boolean));
   const zonePumps = pumps.filter((p) => zonePumpIds.has(p.id));
   const transitioning = zone.transition_status !== "none";
@@ -259,10 +306,7 @@ export default function ZoneDetail() {
 
       {tab === "overview" && (
         <div>
-          <div className="dew-point-row">
-            <span className="lbl">Точка на оросяване</span>
-            <span className="val">{zone.readings?.dew_point != null ? `${zone.readings.dew_point.toFixed(1)}°` : "—"}</span>
-          </div>
+          <DewPoint readings={zone.readings} />
           <div className="gauge-row">
             <Gauge label="Почва T°" value={zone.readings?.soil_t} unit="°" />
             <Gauge label="Почва RH" value={zone.readings?.soil_h} unit="%"
@@ -270,23 +314,25 @@ export default function ZoneDetail() {
             <Gauge label="Въздух T°" value={zone.readings?.air_t} unit="°" />
             <Gauge label="Въздух RH" value={zone.readings?.air_h} unit="%" />
           </div>
+          <div className="period-switch" role="group" aria-label="Период на графиките">
+            {Object.entries(PERIODS).map(([key, p]) => (
+              <button key={key} className={`btn btn-sm ${period === key ? "btn-primary" : ""}`}
+                      aria-pressed={period === key} onClick={() => setPeriod(key)}>{p.label}</button>
+            ))}
+          </div>
           <div className="overview-charts">
-            <div className="tile">
-              <SensorChart label="Почва T° (средно за зоната)" unit="°" height={220}
-                points={buildAverageSeries(sensors, readings, "soil_t")} />
-            </div>
-            <div className="tile">
-              <SensorChart label="Почва RH (средно за зоната)" unit="%" height={220}
-                points={buildAverageSeries(sensors, readings, "soil_h")} />
-            </div>
-            <div className="tile">
-              <SensorChart label="Въздух T° (средно за зоната)" unit="°" height={220}
-                points={buildAverageSeries(sensors, readings, "air_t")} />
-            </div>
-            <div className="tile">
-              <SensorChart label="Въздух RH (средно за зоната)" unit="%" height={220}
-                points={buildAverageSeries(sensors, readings, "air_h")} />
-            </div>
+            {[
+              ["Почва T° (средно за зоната)", "soil_t", "°", 2, { color: "#8a5a2b" }],
+              ["Почва RH (средно за зоната)", "soil_h", "%", 10,
+                { color: "#0b5cad", bandMin: zone.humidity_warn_min ?? undefined, bandMax: zone.humidity_warn_max ?? undefined }],
+              ["Въздух T° (средно за зоната)", "air_t", "°", 2, { color: "#d9480f" }],
+              ["Въздух RH (средно за зоната)", "air_h", "%", 10, { color: "#0b8a8a" }],
+            ].map(([label, attr, unit, minSpan, extra]) => (
+              <div className="tile" key={attr}>
+                <SensorChart label={label} unit={unit} height={220} minSpan={minSpan} {...extra}
+                  points={buildAverageSeries(sensors, chartReadings, attr, chartEnd - PERIODS[period].hours * 3600000, chartEnd, PERIODS[period].buckets)} />
+              </div>
+            ))}
           </div>
           {sensors.length === 0 && <p className="muted">Няма сензори в тая зона.</p>}
         </div>
@@ -294,16 +340,28 @@ export default function ZoneDetail() {
 
       {tab === "sensors" && (
         <div>
-          <div className="dew-point-row">
-            <span className="lbl">Точка на оросяване</span>
-            <span className="val">{zone.readings?.dew_point != null ? `${zone.readings.dew_point.toFixed(1)}°` : "—"}</span>
-          </div>
-          <div className="tile-grid">
-          {sensors.map((s) => {
+          <DewPoint readings={zone.readings} />
+          {layout.length > 0 && (
+            <div className="period-switch" role="group" aria-label="Изглед на сензорите">
+              <button className={`btn btn-sm ${sensorView === "list" ? "btn-primary" : ""}`} aria-pressed={sensorView === "list"}
+                      onClick={() => setSensorView("list")}>Списък</button>
+              <button className={`btn btn-sm ${sensorView === "map" ? "btn-primary" : ""}`} aria-pressed={sensorView === "map"}
+                      onClick={() => setSensorView("map")}>Карта на обекта</button>
+            </div>
+          )}
+          {layout.length > 0 && sensorView === "map" && (
+            <SensorMap sensors={sensors} layout={layout} objects={mapObjects} readings={readings} errors={errors} />
+          )}
+          {layout.length > 0 && sensorView === "map" && sensors.some((s) => !layout.find((l) => l.sensor_id === s.id)) && (
+            <div className="section-title">Без място на картата</div>
+          )}
+          <div className={`tile-grid ${layout.length > 0 ? "map-list" : ""}`} style={layout.length > 0 ? { "--cols": gp.cols } : undefined}>
+          {sortByMap(sensors, layout).filter((s) => !(layout.length > 0 && sensorView === "map" && layout.find((l) => l.sensor_id === s.id))).map((s) => {
             const last = (readings[s.id] || []).slice(-1)[0];
             const sensorError = errors.find((e) => e.sensor_id === s.id);
             return (
-              <div className={`tile ${sensorError ? `tile-sev-${sensorError.severity}` : ""}`} key={s.id}>
+              <div className={`tile ${sensorError ? `tile-sev-${sensorError.severity}` : ""}`} key={s.id}
+                   style={layout.length > 0 ? mapCell(s.id) : undefined}>
                 <div className="tile-head">
                   <span className="tile-name">{s.name}</span>
                   <span className="id-tag mono">{s.id}</span>
@@ -336,6 +394,7 @@ export default function ZoneDetail() {
               <option value="clock">По време</option>
               <option value="threshold">По прагове</option>
             </select>
+            {regimeNote && <div className="error-note">{regimeNote}</div>}
           </div>
           <button className="btn btn-sm" onClick={() => setSettingsOpen(true)}>Настройки на управлението</button>
 

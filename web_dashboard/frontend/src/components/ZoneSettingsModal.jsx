@@ -14,12 +14,13 @@ function daysToLabel(mask) {
   return on.length === 7 ? "всеки ден" : on.join(", ");
 }
 
-function NewScheduleForm({ zone, zoneValves, onSaved }) {
-  const [open, setOpen] = useState(false);
-  const [start, setStart] = useState("06:00");
-  const [end, setEnd] = useState("06:15");
-  const [days, setDays] = useState(127);
-  const [valveIds, setValveIds] = useState([]);
+// Used both for adding a new interval (existing = undefined) and for
+// editing one in place.
+function ScheduleForm({ zone, zoneValves, existing, onSaved, onCancel }) {
+  const [start, setStart] = useState(existing?.start_time ?? "06:00");
+  const [end, setEnd] = useState(existing?.end_time ?? "06:15");
+  const [days, setDays] = useState(existing?.days_mask ?? 127);
+  const [valveIds, setValveIds] = useState(existing?.valve_ids ?? []);
   const [error, setError] = useState(null);
 
   function toggleDay(i) {
@@ -31,18 +32,17 @@ function NewScheduleForm({ zone, zoneValves, onSaved }) {
 
   async function submit(e) {
     e.preventDefault();
+    if (days === 0) { setError("Избери поне един ден."); return; }
+    const body = { start_time: start, end_time: end, days_mask: days, enabled: existing?.enabled ?? true, valve_ids: valveIds };
     try {
-      await api.zones.createSchedule(zone.id, { start_time: start, end_time: end, days_mask: days, enabled: true, valve_ids: valveIds });
-      setOpen(false);
-      setValveIds([]);
+      if (existing) await api.zones.updateSchedule(zone.id, existing.id, body);
+      else await api.zones.createSchedule(zone.id, body);
       setError(null);
       onSaved();
     } catch (err) {
       setError(err.message);
     }
   }
-
-  if (!open) return <button className="btn btn-sm" onClick={() => setOpen(true)}>+ Нов интервал</button>;
 
   return (
     <form className="form-grid" onSubmit={submit}>
@@ -71,13 +71,53 @@ function NewScheduleForm({ zone, zoneValves, onSaved }) {
       {error && <div className="error-note field full">{error}</div>}
       <div className="field full">
         <button className="btn btn-primary btn-sm" type="submit">Запази</button>
-        <button className="btn btn-sm" type="button" onClick={() => setOpen(false)}>Отказ</button>
+        <button className="btn btn-sm" type="button" onClick={onCancel}>Отказ</button>
       </div>
     </form>
   );
 }
 
-function ThresholdRow({ zone, param, label, unit, bounds, zoneValves, existing, onSaved }) {
+function ScheduleCard({ zone, zoneValves, schedule, onSaved, onDelete }) {
+  const [editing, setEditing] = useState(false);
+  const names = schedule.valve_ids.map((id) => {
+    const v = zoneValves.find((x) => x.id === id);
+    return v?.name ? `${v.name} (${id})` : id;
+  });
+  if (editing) {
+    return (
+      <div className="threshold-row">
+        <h4>Редакция на интервал</h4>
+        <ScheduleForm
+          zone={zone} zoneValves={zoneValves} existing={schedule}
+          onSaved={() => { setEditing(false); onSaved(); }} onCancel={() => setEditing(false)}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="threshold-row">
+      <h4>{schedule.start_time} – {schedule.end_time}</h4>
+      <div className="muted">{daysToLabel(schedule.days_mask)} · клапани: {names.join(", ") || "—"}</div>
+      <div className="row-actions">
+        <button className="btn btn-sm" onClick={() => setEditing(true)}>Редактирай</button>
+        <button className="btn btn-sm" onClick={onDelete}>Изтрий</button>
+      </div>
+    </div>
+  );
+}
+
+function NewScheduleButton({ zone, zoneValves, onSaved }) {
+  const [open, setOpen] = useState(false);
+  if (!open) return <button className="btn btn-sm" onClick={() => setOpen(true)}>+ Нов интервал</button>;
+  return (
+    <div className="threshold-row">
+      <h4>Нов интервал</h4>
+      <ScheduleForm zone={zone} zoneValves={zoneValves} onSaved={() => { setOpen(false); onSaved(); }} onCancel={() => setOpen(false)} />
+    </div>
+  );
+}
+
+function ThresholdRow({ zone, param, label, unit, bounds, zoneValves, existing, onSaved, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [minVal, setMinVal] = useState(existing?.min_val ?? bounds[0]);
   const [maxVal, setMaxVal] = useState(existing?.max_val ?? bounds[1]);
@@ -121,9 +161,15 @@ function ThresholdRow({ zone, param, label, unit, bounds, zoneValves, existing, 
             <>
               <div className="muted">
                 Диапазон: {existing.min_val ?? "—"} – {existing.max_val ?? "—"} · поливане {existing.irrigation_duration_s}s ·
-                {" "}изчакване {existing.infiltration_wait_s}s · клапани: {existing.valve_ids.join(", ") || "—"}
+                {" "}изчакване {existing.infiltration_wait_s}s · клапани: {existing.valve_ids.map((id) => {
+                  const v = zoneValves.find((x) => x.id === id);
+                  return v?.name ? `${v.name} (${id})` : id;
+                }).join(", ") || "—"}
               </div>
-              <button className="btn btn-sm" onClick={() => setEditing(true)}>Редактирай</button>
+              <div className="row-actions">
+                <button className="btn btn-sm" onClick={() => setEditing(true)}>Редактирай</button>
+                <button className="btn btn-sm" onClick={onDelete}>Изтрий</button>
+              </div>
             </>
           ) : (
             <button className="btn btn-sm" onClick={() => setEditing(true)}>+ Настрой праг</button>
@@ -234,6 +280,8 @@ export default function ZoneSettingsModal({ zone, valves, onClose, onSaved = () 
   const [schedules, setSchedules] = useState([]);
   const [thresholds, setThresholds] = useState([]);
   const [confirmDeleteSchedule, setConfirmDeleteSchedule] = useState(null);
+  const [confirmDeleteThreshold, setConfirmDeleteThreshold] = useState(null); // param key
+  const [deleteError, setDeleteError] = useState(null);
 
   const zoneValves = valves.filter((v) => v.zone_id === zone.id);
 
@@ -249,9 +297,25 @@ export default function ZoneSettingsModal({ zone, valves, onClose, onSaved = () 
   }, [zone.id]);
 
   async function deleteSchedule() {
-    await api.zones.deleteSchedule(zone.id, confirmDeleteSchedule);
-    setConfirmDeleteSchedule(null);
-    load();
+    try {
+      await api.zones.deleteSchedule(zone.id, confirmDeleteSchedule);
+      setConfirmDeleteSchedule(null);
+      setDeleteError(null);
+      load();
+    } catch (err) {
+      setDeleteError(err.message);
+    }
+  }
+
+  async function deleteThreshold() {
+    try {
+      await api.zones.deleteThreshold(zone.id, confirmDeleteThreshold);
+      setConfirmDeleteThreshold(null);
+      setDeleteError(null);
+      load();
+    } catch (err) {
+      setDeleteError(err.message);
+    }
   }
 
   return (
@@ -271,17 +335,14 @@ export default function ZoneSettingsModal({ zone, valves, onClose, onSaved = () 
       {activeTab === "clock" && (
         <>
           <div className="section-title">Часови интервали</div>
-          {schedules.map((s) => (
-            <div key={s.id} className="module-row">
-              <span className="module-kind">{s.start_time}–{s.end_time}</span>
-              <span className="muted">
-                {daysToLabel(s.days_mask)} · клапани: {s.valve_ids.join(", ") || "—"}
-              </span>
-              <button className="remove-btn" onClick={() => setConfirmDeleteSchedule(s.id)}>&#10005;</button>
-            </div>
+          {schedules.map((sch) => (
+            <ScheduleCard
+              key={sch.id} zone={zone} zoneValves={zoneValves} schedule={sch}
+              onSaved={load} onDelete={() => setConfirmDeleteSchedule(sch.id)}
+            />
           ))}
           {schedules.length === 0 && <p className="muted">Все още няма зададени интервали.</p>}
-          <NewScheduleForm zone={zone} zoneValves={zoneValves} onSaved={load} />
+          <NewScheduleButton zone={zone} zoneValves={zoneValves} onSaved={load} />
         </>
       )}
 
@@ -299,6 +360,7 @@ export default function ZoneSettingsModal({ zone, valves, onClose, onSaved = () 
               zoneValves={zoneValves}
               existing={thresholds.find((t) => t.param === p.key)}
               onSaved={load}
+              onDelete={() => setConfirmDeleteThreshold(p.key)}
             />
           ))}
         </>
@@ -312,8 +374,20 @@ export default function ZoneSettingsModal({ zone, valves, onClose, onSaved = () 
           message="Сигурен ли си, че искаш да изтриеш тоя часови интервал?"
           confirmLabel="Изтрий"
           danger
+          error={deleteError}
           onConfirm={deleteSchedule}
-          onCancel={() => setConfirmDeleteSchedule(null)}
+          onCancel={() => { setConfirmDeleteSchedule(null); setDeleteError(null); }}
+        />
+      )}
+      {confirmDeleteThreshold && (
+        <ConfirmDialog
+          title="Изтриване на праг"
+          message="Сигурен ли си, че искаш да изтриеш това прагово правило?"
+          confirmLabel="Изтрий"
+          danger
+          error={deleteError}
+          onConfirm={deleteThreshold}
+          onCancel={() => { setConfirmDeleteThreshold(null); setDeleteError(null); }}
         />
       )}
     </Modal>

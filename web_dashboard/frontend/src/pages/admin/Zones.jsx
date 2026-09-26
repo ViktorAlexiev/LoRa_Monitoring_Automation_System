@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api.js";
 import Modal from "../../components/Modal.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
+import ZoneLayoutModal from "../../components/ZoneLayoutModal.jsx";
 import ZoneSettingsModal from "../../components/ZoneSettingsModal.jsx";
 import ZoneModulesModal from "../../components/ZoneModulesModal.jsx";
 import { SearchBox } from "../../components/TableControls.jsx";
@@ -38,14 +39,7 @@ function NewZoneModal({ onClose, onCreated }) {
       <form className="form-grid" onSubmit={submit}>
         <div className="field full"><label>Заглавие</label><input required autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
         <div className="field full"><label>Описание</label><input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
-        <div className="field full">
-          <label>Режим</label>
-          <select value={form.regime} onChange={(e) => setForm({ ...form, regime: e.target.value })}>
-            <option value="manual">Ръчен</option>
-            <option value="clock">По време</option>
-            <option value="threshold">По прагове</option>
-          </select>
-        </div>
+        <p className="muted field full">Новата зона започва в ръчен режим. „По време“ и „По прагове“ се включват после, когато са настроени.</p>
         <div className="field"><label>Мин. влажност на почвата, % (по избор)</label><input type="number" min="0" max="100" value={form.humidity_warn_min} onChange={(e) => setForm({ ...form, humidity_warn_min: e.target.value })} /></div>
         <div className="field"><label>Макс. влажност на почвата, % (по избор)</label><input type="number" min="0" max="100" value={form.humidity_warn_max} onChange={(e) => setForm({ ...form, humidity_warn_max: e.target.value })} /></div>
         {error && <div className="error-note field full">{error}</div>}
@@ -69,11 +63,13 @@ export default function Zones() {
   const [newZoneOpen, setNewZoneOpen] = useState(false);
   const [modulesModal, setModulesModal] = useState(null); // { zoneId, kind: 'sensor'|'valve' }
   const [settingsZone, setSettingsZone] = useState(null); // zone object
+  const [layoutZone, setLayoutZone] = useState(null); // zone whose sensor map is being arranged
   const [confirmToggle, setConfirmToggle] = useState(null); // zone object
   const [toggleError, setToggleError] = useState(null);
   const [confirmDeleteZone, setConfirmDeleteZone] = useState(null); // zone object
   const [confirmRegime, setConfirmRegime] = useState(null); // { zone, newRegime }
   const [regimeError, setRegimeError] = useState(null);
+  const [zoneNote, setZoneNote] = useState(null); // { id, msg } - refused regime change on an inactive zone
   const [transitionErrors, setTransitionErrors] = useState({}); // zoneId -> ZoneErrorOut[]
 
   async function loadAll() {
@@ -122,7 +118,8 @@ export default function Zones() {
       setConfirmRegime({ zone, newRegime });
       setRegimeError(null);
     } else {
-      changeRegime(zone.id, newRegime);
+      setZoneNote(null);
+      changeRegime(zone.id, newRegime).catch((err) => setZoneNote({ id: zone.id, msg: err.message }));
     }
   }
 
@@ -232,10 +229,12 @@ export default function Zones() {
                     <option value="clock">По време</option>
                     <option value="threshold">По прагове</option>
                   </select>
+                  {zoneNote?.id === z.id && <div className="error-note">{zoneNote.msg}</div>}
                 </div>
                 <button className="btn btn-sm" onClick={() => setSettingsZone(z)}>
                   {z.regime === "manual" ? "Настройки" : `Настройки на ${MODE_LABEL[z.regime].toLowerCase()}`}
                 </button>
+                <button className="btn btn-sm" onClick={() => setLayoutZone(z)}>Карта на обекта</button>
 
                 {locked && (
                   <div className="locked-note">
@@ -271,6 +270,14 @@ export default function Zones() {
           locked={modulesModalZone.is_active}
           onClose={() => setModulesModal(null)}
           onSaved={loadAll}
+        />
+      )}
+
+      {layoutZone && (
+        <ZoneLayoutModal
+          zone={layoutZone}
+          sensors={sensors.filter((s) => s.zone_id === layoutZone.id)}
+          onClose={() => setLayoutZone(null)}
         />
       )}
 

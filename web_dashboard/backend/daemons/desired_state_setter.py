@@ -41,6 +41,10 @@ guard) reads the zone's average through app/zone_stats.py's zone_average -
 the very same number the dashboard shows (windowed average, 255 markers and
 outliers excluded), not a separate calculation.
 
+Soil-moisture safety net (threshold regime only): see _tick_threshold_zones -
+"too wet" (>= humidity_warn_max) stops/blocks irrigation, "too dry"
+(< humidity_warn_min) starts it if the normal rule hasn't.
+
 Overwatering guard (clock regime only): before opening a scheduled valve,
 checks the zone's humidity_warn_max (a zone-wide safety bound, independent
 of regime - see models.Zone). If soil moisture is already at/above it, the
@@ -214,6 +218,19 @@ def _claim_with_priority(db, zone, valve, pump):
 
 def _tick_threshold_zones(db, now):
     for zone in db.query(models.Zone).filter_by(regime="threshold", is_active=True, transition_status="none").all():
+        # Soil-moisture safety net (threshold regime ONLY - clock has its own
+        # guard, manual is never touched): the zone's warning limits override
+        # the irrigation rules.
+        #   too wet (avg >= humidity_warn_max): stop any irrigation running
+        #     and don't start a new one, whatever the rules say;
+        #   too dry (avg <  humidity_warn_min): if irrigation somehow isn't
+        #     running, start it (still respects the infiltration wait after a
+        #     finished cycle, and the pump's slot queue).
+        soil = zone_average(zone, "soil_h")
+        too_wet = zone.humidity_warn_max is not None and soil is not None and soil >= zone.humidity_warn_max
+        too_dry = zone.humidity_warn_min is not None and soil is not None and soil < zone.humidity_warn_min
+        has_soil_rule = any(r.param == "S_H" for r in zone.thresholds)
+
         for rule in zone.thresholds:
             attr = PARAM_TO_READING_FIELD.get(rule.param)
             if attr is None:
@@ -226,6 +243,12 @@ def _tick_threshold_zones(db, now):
             rule_valves = [v for v in zone.valves if v.id in rule_valve_ids]
 
             currently_irrigating = any(v.current_state == "on" for v in rule_valves)
+            if too_wet:
+                for v in rule_valves:
+                    if v.desired_state == "on":
+                        v.desired_state = "off"
+                    _resolve_queue_wait(db, zone.id, v.id)
+                continue
             if currently_irrigating:
                 started = min(
                     (v.current_updated_at for v in rule_valves if v.current_state == "on" and v.current_updated_at),
@@ -245,6 +268,8 @@ def _tick_threshold_zones(db, now):
 
             reading = zone_average(zone, attr)
             needs_water = reading is not None and rule.min_val is not None and reading < rule.min_val
+            if too_dry and (rule.param == "S_H" or not has_soil_rule):
+                needs_water = True
 
             if not needs_water:
                 for v in rule_valves:
