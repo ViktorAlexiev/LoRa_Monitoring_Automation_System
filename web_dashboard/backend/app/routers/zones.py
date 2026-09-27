@@ -159,6 +159,12 @@ def _require_regime_configured(db: Session, zone: models.Zone, regime: str):
                 "Първо добави поне един график с клапан.",
             )
     elif regime == "threshold":
+        if not zone.sensors:
+            raise HTTPException(
+                400,
+                "Не може да се включи режим „По прагове“ — зоната няма сензори. Автоматика по прагове "
+                "без сензор не може да реши кога да полива. Първо добави сензор към зоната.",
+            )
         linked = {
             (t.zone_id, t.param) for t in db.query(models.ThresholdValve).filter_by(zone_id=zone.id).all()
         }
@@ -609,6 +615,12 @@ def upsert_threshold(zone_id: int, payload: schemas.ZoneThresholdCreate, db: Ses
         raise HTTPException(404, "Zone not found")
     require_zone_control(db, user, zone_id)
     _require_no_transition(zone)
+    if not zone.sensors:
+        raise HTTPException(
+            400,
+            "Не може да се зададе праг — зоната няма сензори. Автоматика по прагове без сензор не може "
+            "да реши кога да полива. Първо добави сензор към зоната.",
+        )
     zone_valve_ids = {v.id for v in zone.valves}
     for vid in payload.valve_ids:
         if vid not in zone_valve_ids:
