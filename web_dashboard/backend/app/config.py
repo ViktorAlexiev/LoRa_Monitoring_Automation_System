@@ -45,6 +45,13 @@ _DEFAULTS = {
         # (byte-identical) across this many minutes' worth of readings,
         # regardless of whether anything is irrigating.
         "sensor_stuck_minutes": 60,
+        # EXECUTOR_FREQUENT_RESTART: this many "executor_restart" AuditLog
+        # rows (see reconciler.py's _log_executor_restart) for the same
+        # executor within this many minutes - one restart is normal after a
+        # power blip, several in a row usually means a real supply/hardware
+        # problem, not just bad luck once.
+        "frequent_restart_count": 3,
+        "frequent_restart_window_minutes": 15,
     },
     "security": {
         # Sliding window (see app/auth.py) - a logged-in user's session is

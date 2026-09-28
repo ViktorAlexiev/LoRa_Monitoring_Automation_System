@@ -101,6 +101,17 @@ Checks implemented so far:
     highest-volume table in the schema. Throttled to once per
     CLEANUP_INTERVAL_SECONDS, not every tick.
 
+15. EXECUTOR_FREQUENT_RESTART (warning) - not in the original catalog: reads
+    AuditLog (app/audit.py), not ZONE_ERRORS/heartbeats, for
+    config["health_checks"]["frequent_restart_count"] "executor_restart"
+    rows (reconciler.py's _log_executor_restart, itself driven by the
+    firmware's "restart": true marker on module_states_response - see
+    gateway/lora_handlers.cpp) for the same executor within
+    config["health_checks"]["frequent_restart_window_minutes"]. One restart
+    is normal (a real power cut); a cluster of them usually means a flaky
+    supply or connector, worth a look even though the device keeps coming
+    back on its own and #3 above never sees it as offline.
+
 Deliberately NOT implemented: VALVE_STUCK_OPEN (current_state=off while S_H
 keeps rising) - there is no way to tell that apart from a legitimate
 infiltration_wait_s tail-off or another zone's pump still running on a
@@ -389,6 +400,37 @@ def _check_device_offline(db, now):
                 _resolve(db, error_code, **kwargs)
 
 
+def _check_executor_frequent_restart(db, now):
+    """EXECUTOR_FREQUENT_RESTART (warning): the executor itself is fine right
+    now (it always comes back and re-announces its state - that's what
+    reconciler.py's "executor_restart" AuditLog rows even ARE, see
+    app/audit.py's log_system), but restarting on its own several times in a
+    short window is not normal wear - usually a flaky power supply,
+    a loose connector, or overheating. One isolated restart after a real
+    power cut is expected and not flagged; only a CLUSTER of them is."""
+    count = CONFIG["health_checks"]["frequent_restart_count"]
+    window_minutes = CONFIG["health_checks"]["frequent_restart_window_minutes"]
+    cutoff = now - datetime.timedelta(minutes=window_minutes)
+    for executor in db.query(models.Executor).filter_by(is_active=True).all():
+        recent = (
+            db.query(models.AuditLog)
+            .filter(models.AuditLog.action == "executor_restart",
+                    models.AuditLog.executor_id == executor.id,
+                    models.AuditLog.at >= cutoff)
+            .count()
+        )
+        if recent >= count:
+            _open_or_refresh(
+                db, "EXECUTOR_FREQUENT_RESTART", "warning",
+                f"{_nm('Модул за управление', executor)} се е рестартирал {recent} пъти за последните "
+                f"{window_minutes} мин. Вероятно има проблем със захранването или връзката — проверете "
+                f"кабелите и токозахранващия адаптер.",
+                executor_id=executor.id,
+            )
+        else:
+            _resolve(db, "EXECUTOR_FREQUENT_RESTART", executor_id=executor.id)
+
+
 def _check_valve_no_effect(db, now):
     """Combined VALVE_NO_EFFECT / ZONE_NO_RESPONSE - see module docstring."""
     limit_minutes = CONFIG["health_checks"]["no_effect_after_minutes"]
@@ -671,6 +713,7 @@ def tick():
         _check_sensor_outlier(db)
         _check_threshold_misconfigured(db)
         _check_device_offline(db, now)
+        _check_executor_frequent_restart(db, now)
         db.commit()
     finally:
         db.close()

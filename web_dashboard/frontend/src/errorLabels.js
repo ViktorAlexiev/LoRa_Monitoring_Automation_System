@@ -18,5 +18,6 @@ export const ERROR_TITLES = {
   PUMP_QUEUE_WAIT: "Поливането чака ред",
   THRESHOLD_MISCONFIGURED: "Неправилни граници в настройките",
   MODULE_UNREACHABLE: "Няма връзка с модул",
+  EXECUTOR_FREQUENT_RESTART: "Модул се рестартира често",
 };
 export const errorTitle = (code) => ERROR_TITLES[code] || "Проблем";

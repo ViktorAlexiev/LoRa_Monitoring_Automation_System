@@ -3,6 +3,7 @@ import { api } from "../../api.js";
 import Modal from "../../components/Modal.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
 import ZoneLayoutModal from "../../components/ZoneLayoutModal.jsx";
+import SiteMapEditor from "../../components/SiteMapEditor.jsx";
 import ZoneSettingsModal from "../../components/ZoneSettingsModal.jsx";
 import ZoneModulesModal from "../../components/ZoneModulesModal.jsx";
 import { SearchBox } from "../../components/TableControls.jsx";
@@ -64,6 +65,7 @@ export default function Zones() {
   const [modulesModal, setModulesModal] = useState(null); // { zoneId, kind: 'sensor'|'valve' }
   const [settingsZone, setSettingsZone] = useState(null); // zone object
   const [layoutZone, setLayoutZone] = useState(null); // zone whose sensor map is being arranged
+  const [siteMapOpen, setSiteMapOpen] = useState(false);
   const [confirmToggle, setConfirmToggle] = useState(null); // zone object
   const [toggleError, setToggleError] = useState(null);
   const [confirmDeleteZone, setConfirmDeleteZone] = useState(null); // zone object
@@ -162,6 +164,7 @@ export default function Zones() {
         </div>
         <div className="admin-head-actions">
           <SearchBox value={zoneTable.search} onChange={zoneTable.setSearch} options={zoneTable.searchOptions} placeholder="Търси зона по име…" />
+          <button className="btn" onClick={() => setSiteMapOpen(true)}>Карта на целия обект</button>
           <button className="btn btn-primary" onClick={() => setNewZoneOpen(true)}>+ Нова зона</button>
         </div>
       </div>
@@ -234,7 +237,7 @@ export default function Zones() {
                 <button className="btn btn-sm" onClick={() => setSettingsZone(z)}>
                   {z.regime === "manual" ? "Настройки" : `Настройки на ${MODE_LABEL[z.regime].toLowerCase()}`}
                 </button>
-                <button className="btn btn-sm" onClick={() => setLayoutZone(z)}>Карта на обекта</button>
+                <button className="btn btn-sm" onClick={() => setLayoutZone(z)}>Карта на зоната</button>
 
                 {locked && (
                   <div className="locked-note">
@@ -272,6 +275,8 @@ export default function Zones() {
           onSaved={loadAll}
         />
       )}
+
+      {siteMapOpen && <SiteMapEditor zones={zones} onClose={() => setSiteMapOpen(false)} />}
 
       {layoutZone && (
         <ZoneLayoutModal

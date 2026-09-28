@@ -130,6 +130,9 @@ class ModuleRef(BaseModel):
 
 
 class ZoneSummary(ZoneOut):
+    # False = the user may not open this zone: only its name is real, everything
+    # else is blanked (the dashboard shows it greyed out, not clickable).
+    accessible: bool = True
     readings: GaugeReadings = GaugeReadings()
     modules: List[ModuleRef] = []
     open_error_count: int = 0
@@ -313,6 +316,19 @@ class MapObjectsSet(BaseModel):
     objects: List[MapObjectItem] = []
 
 
+class SiteZoneItem(BaseModel):
+    zone_id: int
+    x: float = Field(ge=0, le=100)
+    y: float = Field(ge=0, le=100)
+    w: float = Field(ge=3, le=100)
+    h: float = Field(ge=3, le=100)
+
+
+class SiteMapOut(BaseModel):
+    zones: List[SiteZoneItem] = []
+    objects: List[MapObjectItem] = []
+
+
 class ZoneScheduleCreate(BaseModel):
     start_time: str
     end_time: str
@@ -383,6 +399,8 @@ class HealthChecksConfig(BaseModel):
     device_offline_minutes: int
     no_effect_after_minutes: int
     sensor_stuck_minutes: int
+    frequent_restart_count: int
+    frequent_restart_window_minutes: int
 
 
 class SecurityConfig(BaseModel):
@@ -435,6 +453,8 @@ class HealthChecksConfigUpdate(BaseModel):
     device_offline_minutes: Optional[int] = None
     no_effect_after_minutes: Optional[int] = None
     sensor_stuck_minutes: Optional[int] = None
+    frequent_restart_count: Optional[int] = None
+    frequent_restart_window_minutes: Optional[int] = None
 
 
 class SecurityConfigUpdate(BaseModel):

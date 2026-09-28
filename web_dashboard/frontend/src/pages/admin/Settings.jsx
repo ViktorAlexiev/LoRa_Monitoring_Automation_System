@@ -43,6 +43,8 @@ const FIELDS = [
       { key: "device_offline_minutes", label: "Устройство без heartbeat за (GATEWAY/REPEATER/EXECUTOR_OFFLINE)", suffix: "мин" },
       { key: "no_effect_after_minutes", label: "Клапан включен без промяна на влажността за (VALVE_NO_EFFECT)", suffix: "мин" },
       { key: "sensor_stuck_minutes", label: "Сензор с напълно непроменена стойност за (SENSOR_STUCK_VALUE)", suffix: "мин" },
+      { key: "frequent_restart_count", label: "Брой рестартирания, за да се вдигне EXECUTOR_FREQUENT_RESTART", suffix: "пъти" },
+      { key: "frequent_restart_window_minutes", label: "…в рамките на (EXECUTOR_FREQUENT_RESTART)", suffix: "мин" },
     ],
   },
   {

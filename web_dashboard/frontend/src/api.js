@@ -120,15 +120,27 @@ export const api = {
     update: (data) => request("/config", { method: "PATCH", body: JSON.stringify(data) }),
   },
   audit: {
-    list: ({ zoneId, limit = 100, beforeId } = {}) => {
+    list: ({ zoneId, limit = 100, beforeId, actions, who, q: text } = {}) => {
       const q = new URLSearchParams({ limit });
       if (zoneId) q.set("zone_id", zoneId);
       if (beforeId) q.set("before_id", beforeId);
+      if (actions && actions.length) q.set("actions", actions.join(","));
+      if (who) q.set("who", who);
+      if (text) q.set("q", text);
       return request(`/audit?${q}`);
     },
   },
   errors: {
     network: () => request("/errors/network"),
     open: () => request("/errors/open"),
+    history: ({ limit = 100, beforeId } = {}) => {
+      const q = new URLSearchParams({ limit });
+      if (beforeId) q.set("before_id", beforeId);
+      return request(`/site/errors/history?${q}`);
+    },
+  },
+  site: {
+    map: () => request("/site/map"),
+    saveMap: (data) => request("/site/map", { method: "PUT", body: JSON.stringify(data) }),
   },
 };

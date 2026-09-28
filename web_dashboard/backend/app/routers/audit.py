@@ -12,6 +12,7 @@ router = APIRouter(prefix="/api/audit", tags=["audit"])
 
 @router.get("", response_model=List[schemas.AuditOut])
 def list_audit(zone_id: Optional[int] = None, limit: int = 200, before_id: Optional[int] = None,
+               actions: Optional[str] = None, who: Optional[str] = None, q: Optional[str] = None,
                db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """The history of human actions, newest first.
 
@@ -19,6 +20,10 @@ def list_audit(zone_id: Optional[int] = None, limit: int = 200, before_id: Optio
       - the whole history (all zones and system-wide actions): administrators only;
       - one zone's history (?zone_id=): anyone who may CONTROL that zone
         (agronomists and administrators) - viewers see no history.
+
+    Optional filters (combine freely): actions=a,b,c (only those action
+    codes), who=text (part of the person's name/username; "Системно" finds
+    system events), q=text (part of the details or the zone name).
     """
     if zone_id is None:
         if user.role != "admin":
@@ -28,6 +33,14 @@ def list_audit(zone_id: Optional[int] = None, limit: int = 200, before_id: Optio
     query = db.query(models.AuditLog)
     if zone_id is not None:
         query = query.filter(models.AuditLog.zone_id == zone_id)
+    if actions:
+        query = query.filter(models.AuditLog.action.in_([a for a in actions.split(",") if a]))
+    if who:
+        like = f"%{who.strip()}%"
+        query = query.filter(models.AuditLog.display_name.ilike(like) | models.AuditLog.username.ilike(like))
+    if q:
+        like_q = f"%{q.strip()}%"
+        query = query.filter(models.AuditLog.detail.ilike(like_q) | models.AuditLog.zone_name.ilike(like_q))
     if before_id is not None:
         query = query.filter(models.AuditLog.id < before_id)
     return query.order_by(models.AuditLog.id.desc()).limit(min(max(limit, 1), 500)).all()

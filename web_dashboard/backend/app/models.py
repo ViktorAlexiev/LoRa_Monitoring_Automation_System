@@ -55,6 +55,7 @@ class Zone(Base):
     valves = relationship("Valve", back_populates="zone")
     schedules = relationship("ZoneSchedule", back_populates="zone", cascade="all, delete-orphan")
     map_objects = relationship("ZoneMapObject", back_populates="zone", cascade="all, delete-orphan")
+    site_pos = relationship("SiteMapZone", back_populates="zone", uselist=False, cascade="all, delete-orphan")
     thresholds = relationship("ZoneThreshold", back_populates="zone", cascade="all, delete-orphan")
     errors = relationship("ZoneError", back_populates="zone", cascade="all, delete-orphan")
     events = relationship("ZoneEvent", back_populates="zone", cascade="all, delete-orphan")
@@ -144,10 +145,14 @@ class ZoneMapObject(Base):
 
 
 class AuditLog(Base):
-    """Who did what, when - human actions only (manual valve/pump commands,
-    mode changes, schedule/threshold edits, emergency stops). Names are
-    snapshots so the history stays readable after a user or zone is
-    renamed or deleted."""
+    """Who did what, when - a human action (manual valve/pump commands, mode
+    changes, schedule/threshold edits, emergency stops - user_id set) or a
+    notable system-detected event (an executor restarting on its own -
+    user_id NULL, display_name "Системно", see app/audit.py's log_system).
+    Names are snapshots so the history stays readable after a user, zone or
+    device is renamed or deleted. executor_id is set only for
+    device-specific system events, so health_checker.py can count them per
+    device (see EXECUTOR_FREQUENT_RESTART) without parsing free text."""
 
     __tablename__ = "audit_log"
 
@@ -159,7 +164,40 @@ class AuditLog(Base):
     action = Column(String(32), nullable=False)
     zone_id = Column(Integer, nullable=True, index=True)
     zone_name = Column(String(128), default="")
+    executor_id = Column(String(6), nullable=True, index=True)
     detail = Column(Text, default="")
+
+
+class SiteMapZone(Base):
+    """Where a zone sits on the map of the WHOLE site (a box: x/y = centre,
+    w/h = size, all percentages). Cosmetic, separate table so existing
+    databases pick it up through create_all without a migration."""
+
+    __tablename__ = "site_map_zones"
+
+    zone_id = Column(Integer, ForeignKey("zones.id"), primary_key=True)
+    x = Column(Float, nullable=False)
+    y = Column(Float, nullable=False)
+    w = Column(Float, nullable=False)
+    h = Column(Float, nullable=False)
+
+    zone = relationship("Zone", back_populates="site_pos")
+
+
+class SiteMapObject(Base):
+    """A rough landmark on the whole-site map (road, building, gate ...) -
+    same idea as ZoneMapObject, but not tied to a zone."""
+
+    __tablename__ = "site_map_objects"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    kind = Column(String(16), nullable=False)
+    label = Column(String(64), default="")
+    color = Column(String(16), default="")
+    x = Column(Float, nullable=False)
+    y = Column(Float, nullable=False)
+    w = Column(Float, nullable=False)
+    h = Column(Float, nullable=False)
 
 
 class RepeaterSensor(Base):

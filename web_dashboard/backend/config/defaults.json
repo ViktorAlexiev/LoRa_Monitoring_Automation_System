@@ -24,7 +24,9 @@
     "sensor_offline_minutes": 30,
     "device_offline_minutes": 10,
     "no_effect_after_minutes": 15,
-    "sensor_stuck_minutes": 60
+    "sensor_stuck_minutes": 60,
+    "frequent_restart_count": 3,
+    "frequent_restart_window_minutes": 15
   },
   "security": {
     "session_timeout_minutes": 60

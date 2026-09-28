@@ -133,6 +133,22 @@ class FakeExecutor:
             "id": self.executor_id, "states": states,
         }), qos=1)
 
+    def simulate_restart(self, client):
+        """POST /executor/<id>/restart - mimics the real Executor's
+        automatic, unsolicited module_states_response right after boot (see
+        gateway/lora_handlers.cpp's "restart": true marker), all consumers
+        going OFF exactly like the real firmware does in setup() (manual
+        3.2/point 11 of CHANGES.md - deliberately not preserved across a
+        restart)."""
+        with self.lock:
+            for cid in self.states:
+                self.states[cid] = "OFF"
+            states = [{"id": cid, "state": s} for cid, s in self.states.items()]
+        client.publish(TOPIC_MODULE_STATES_RESPONSE, json.dumps({
+            "id": self.executor_id, "states": states, "restart": True,
+        }), qos=1)
+        print(f"fake_field: {self.executor_id} simulated restart - all consumers OFF, restart response sent")
+
     def is_on(self, consumer_id):
         with self.lock:
             return self.states.get(consumer_id) == "ON"
@@ -329,6 +345,14 @@ def _make_control_handler(sim: FieldSimulator):
                         "unstick": lambda: sim.sensors_stuck.discard(sid),
                     }[action]()
                     self._json({"ok": True, "state": self._state()})
+                elif parts[:1] == ["executor"] and len(parts) == 3 and parts[2] == "restart":
+                    eid = parts[1]
+                    ex = sim.executors.get(eid)
+                    if ex is None:
+                        self._json({"error": "unknown executor"}, 404)
+                        return
+                    ex.simulate_restart(sim.client)
+                    self._json({"ok": True, "state": self._state()})
                 elif parts[:1] == ["executor"] and len(parts) == 3:
                     eid, action = parts[1], parts[2]
                     {"pause": lambda: sim.executors_paused.add(eid),
@@ -378,7 +402,7 @@ def main():
 
     print(f"fake_field.py running - control API on http://127.0.0.1:{CONTROL_PORT} "
           f"(GET /state, POST /sensor/<id>/pause|resume|fault|clear_fault|stick|unstick, "
-          f"/executor/<id>/pause|resume, /executor/<id>/consumer/<cid>/fault {{mode}}, "
+          f"/executor/<id>/pause|resume|restart, /executor/<id>/consumer/<cid>/fault {{mode}}, "
           f"/repeater|gateway/pause|resume, /soil/<id>/set {{value}}). Ctrl+C to stop.")
     try:
         while True:

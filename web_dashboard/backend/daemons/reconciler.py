@@ -61,6 +61,16 @@ Three moving parts:
    progress. Skipped for any consumer with a command already in flight, to
    avoid racing its own resolution.
 
+   An Executor also sends this SAME message shape unsolicited, right after
+   its own boot (gateway/lora_handlers.cpp marks it with "restart": true,
+   not present on our own requested resync) - see _log_executor_restart.
+   That case is applied to current_state exactly like any other resync, but
+   is additionally logged as an "executor_restart" row in AuditLog
+   (app/audit.py's log_system - a device event, not a human action, but the
+   same history the admin/agronomist already look at for "who did what").
+   Still not a ZONE_ERRORS write - restarting isn't an ongoing problem to
+   open/resolve, just a moment worth a line in the log.
+
 3. A tick loop (main thread) that:
    a. Finalizes anything the MQTT thread marked acked but not yet
       resolved, once its physical settle time has elapsed (see below).
@@ -102,7 +112,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import paho.mqtt.client as mqtt  # noqa: E402
 
-from app import models  # noqa: E402
+from app import audit, models  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
 from daemons.system_config import mqtt_settings  # noqa: E402
 
@@ -231,6 +241,46 @@ def _apply_consumer_state(db, consumer_id: str, state: str, now):
         pump.current_updated_at = now
 
 
+# In-memory, per-process - fine, this daemon is the only writer of this kind
+# of row and doesn't need it to survive a restart of itself. Keeps a single
+# physical restart (the Executor may resend its restart response up to 3x,
+# 4s apart, if the LoRa-level ACK back doesn't land - see gateway/
+# lora_handlers.cpp / executor/radio_io.cpp) from becoming several audit rows.
+_RESTART_LOG_COOLDOWN_S = 60
+_last_restart_logged = {}  # executor_id -> datetime.datetime
+
+
+def _log_executor_restart(db, executor_id, now):
+    last = _last_restart_logged.get(executor_id)
+    if last is not None and (now - last).total_seconds() < _RESTART_LOG_COOLDOWN_S:
+        return
+    _last_restart_logged[executor_id] = now
+
+    executor = db.get(models.Executor, executor_id)
+    who = f"„{executor.name}“ ({executor_id})" if executor and executor.name else executor_id
+    detail = (
+        f"Модул за управление {who} се е рестартирал — получен е автоматичният отговор веднага "
+        f"след стартиране на устройството (restart state response). Всички негови консуматори "
+        f"тръгват изключени, докато не им се подаде команда. Проверете дали е имало токов удар."
+    )
+    # Every zone this executor actually touches, either directly (valves it
+    # drives) or through a pump it drives (that pump's valves' zones) - same
+    # "affects every zone that shares the device" reasoning as
+    # MODULE_UNREACHABLE elsewhere in this app. One row per affected zone, so
+    # an agronomist sees it in their own zone's History tab, not just the
+    # admin-only global one; zone_id=None (global only) if the executor
+    # isn't wired into any zone yet.
+    zone_ids = {v.zone_id for v in db.query(models.Valve).filter_by(executor_id=executor_id).all() if v.zone_id}
+    for pump in db.query(models.Pump).filter_by(executor_id=executor_id).all():
+        zone_ids |= {v.zone_id for v in pump.valves if v.zone_id}
+    if zone_ids:
+        for zid in zone_ids:
+            audit.log_system(db, "executor_restart", detail, zone_id=zid, executor_id=executor_id)
+    else:
+        audit.log_system(db, "executor_restart", detail, executor_id=executor_id)
+    print(f"reconciler: executor {executor_id} restarted (unsolicited module_states_response) - logged")
+
+
 def _on_module_states_response(client, userdata, msg):
     try:
         payload = json.loads(msg.payload.decode("utf-8"))
@@ -247,6 +297,8 @@ def _on_module_states_response(client, userdata, msg):
     db = SessionLocal()
     try:
         now = datetime.datetime.utcnow()
+        if payload.get("restart"):
+            _log_executor_restart(db, executor_id, now)
         for entry in payload.get("states", []):
             _apply_consumer_state(db, entry["id"], entry["state"].lower(), now)
         db.commit()

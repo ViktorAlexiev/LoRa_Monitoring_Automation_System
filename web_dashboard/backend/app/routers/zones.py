@@ -69,11 +69,21 @@ def _zone_summary(zone: models.Zone) -> schemas.ZoneSummary:
 
 @router.get("", response_model=List[schemas.ZoneSummary])
 def list_zones(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """Every zone, in id order. Zones the user may not open still appear (the
+    dashboard lists them greyed out, behind a Show/Hide button) but only as
+    `accessible=False` stubs: name and nothing else - no readings, modules,
+    description or error counts."""
     ids = accessible_zone_ids(db, user)  # None = admin, sees everything
-    query = db.query(models.Zone)
-    if ids is not None:
-        query = query.filter(models.Zone.id.in_(ids))
-    return [_zone_summary(z) for z in query.order_by(models.Zone.id).all()]
+    out = []
+    for z in db.query(models.Zone).order_by(models.Zone.id).all():
+        if ids is None or z.id in ids:
+            out.append(_zone_summary(z))
+        else:
+            out.append(schemas.ZoneSummary(
+                id=z.id, name=z.name, description="", regime="manual", is_active=z.is_active,
+                created_at=z.created_at, accessible=False,
+            ))
+    return out
 
 
 @router.get("/{zone_id}", response_model=schemas.ZoneSummary)
@@ -86,7 +96,8 @@ def get_zone(zone_id: int, db: Session = Depends(get_db), user: models.User = De
 
 
 @router.post("", response_model=schemas.ZoneOut, status_code=201, dependencies=[Depends(require_role("admin"))])
-def create_zone(payload: schemas.ZoneCreate, db: Session = Depends(get_db)):
+def create_zone(payload: schemas.ZoneCreate, db: Session = Depends(get_db),
+                 user: models.User = Depends(get_current_user)):
     # A brand-new zone has no valves/schedules/thresholds yet, so it can only
     # start in manual mode - "по време"/"по прагове" are switched on later,
     # once they're set up (see _require_regime_configured).
@@ -94,6 +105,8 @@ def create_zone(payload: schemas.ZoneCreate, db: Session = Depends(get_db)):
     data["regime"] = "manual"
     zone = models.Zone(**data, is_active=False)
     db.add(zone)
+    db.flush()
+    audit.log(db, user, "zone_create", f"Създадена зона „{zone.name}“", zone=zone)
     db.commit()
     db.refresh(zone)
     return zone
@@ -306,6 +319,8 @@ def continue_transition(zone_id: int, db: Session = Depends(get_db), user: model
         # whether the real off succeeded.
         raise HTTPException(400, "Зоната не чака решение (все още се опитва да се изключи, или не е в преход)")
 
+    audit.log(db, user, "transition_continue",
+              "Продължи преход с неизключен консуматор — старият проблем остава отворен", zone=zone)
     if zone.pending_regime is not None:
         zone.regime = zone.pending_regime
     if zone.pending_is_active is not None:
@@ -328,6 +343,8 @@ def deactivate_from_transition(zone_id: int, db: Session = Depends(get_db), user
     if zone.transition_status != "error":
         raise HTTPException(400, "Зоната не чака решение (все още се опитва да се изключи, или не е в преход)")
 
+    audit.log(db, user, "transition_deactivate",
+              "Деактивирана зона от заседнал преход, вместо да изчаква неизключен консуматор", zone=zone)
     zone.is_active = False
     for valve in zone.valves:
         valve.desired_state = "off"
@@ -353,7 +370,7 @@ def list_open_errors(zone_id: int, db: Session = Depends(get_db), user: models.U
 
 
 @router.delete("/{zone_id}", status_code=204, dependencies=[Depends(require_role("admin"))])
-def delete_zone(zone_id: int, db: Session = Depends(get_db)):
+def delete_zone(zone_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """Sensors and valves aren't deleted with their zone - they just become
     unassigned (zone_id=None), same as an explicit unassign. Only the zone's
     own schedules/thresholds/errors/events (cascade="all, delete-orphan" on
@@ -363,6 +380,9 @@ def delete_zone(zone_id: int, db: Session = Depends(get_db)):
     zone = db.get(models.Zone, zone_id)
     if not zone:
         raise HTTPException(404, "Not found")
+    # Logged BEFORE the delete/AuditLog rows for this zone_id stay readable
+    # afterwards - same snapshot reasoning as everywhere else in AuditLog.
+    audit.log(db, user, "zone_delete", f"Изтрита зона „{zone.name}“", zone=zone)
     for sensor in zone.sensors:
         sensor.zone_id = None
         sensor.layout = None
@@ -409,7 +429,8 @@ def _require_source_zone_inactive(source_zone: "models.Zone | None"):
 
 
 @router.post("/{zone_id}/sensors", dependencies=[Depends(require_role("admin"))])
-def assign_sensors(zone_id: int, sensor_ids: List[str] = Body(embed=True), db: Session = Depends(get_db)):
+def assign_sensors(zone_id: int, sensor_ids: List[str] = Body(embed=True), db: Session = Depends(get_db),
+                    user: models.User = Depends(get_current_user)):
     zone = db.get(models.Zone, zone_id)
     if not zone:
         raise HTTPException(404, "Zone not found")
@@ -423,12 +444,15 @@ def assign_sensors(zone_id: int, sensor_ids: List[str] = Body(embed=True), db: S
         if sensor.zone_id != zone_id:
             sensor.layout = None  # its spot on the old zone's map means nothing here
         sensor.zone_id = zone_id
+    if sensor_ids:
+        audit.log(db, user, "sensor_assign", f"Добавен(и) сензор(и) към зоната: {', '.join(sensor_ids)}", zone=zone)
     db.commit()
     return {"ok": True}
 
 
 @router.delete("/{zone_id}/sensors/{sensor_id}", dependencies=[Depends(require_role("admin"))])
-def unassign_sensor(zone_id: int, sensor_id: str, db: Session = Depends(get_db)):
+def unassign_sensor(zone_id: int, sensor_id: str, db: Session = Depends(get_db),
+                     user: models.User = Depends(get_current_user)):
     zone = db.get(models.Zone, zone_id)
     if not zone:
         raise HTTPException(404, "Zone not found")
@@ -436,6 +460,7 @@ def unassign_sensor(zone_id: int, sensor_id: str, db: Session = Depends(get_db))
     sensor = db.get(models.Sensor, sensor_id)
     if not sensor or sensor.zone_id != zone_id:
         raise HTTPException(404, "Not found in this zone")
+    audit.log(db, user, "sensor_unassign", f"Махнат сензор {sensor_id} от зоната", zone=zone)
     sensor.zone_id = None
     sensor.layout = None
     db.commit()
@@ -443,7 +468,8 @@ def unassign_sensor(zone_id: int, sensor_id: str, db: Session = Depends(get_db))
 
 
 @router.post("/{zone_id}/valves", dependencies=[Depends(require_role("admin"))])
-def assign_valves(zone_id: int, valve_ids: List[str] = Body(embed=True), db: Session = Depends(get_db)):
+def assign_valves(zone_id: int, valve_ids: List[str] = Body(embed=True), db: Session = Depends(get_db),
+                   user: models.User = Depends(get_current_user)):
     """Only valves that already have both a pump and an executor set can be
     dropped into a zone - see the validation-gate discussion in
     description_updated.docx (nullable P_ID/M_ID + gate on zone assignment)."""
@@ -463,12 +489,15 @@ def assign_valves(zone_id: int, valve_ids: List[str] = Body(embed=True), db: Ses
         if valve.zone_id is not None and valve.zone_id != zone_id:
             _require_source_zone_inactive(valve.zone)
         valve.zone_id = zone_id
+    if valve_ids:
+        audit.log(db, user, "valve_assign", f"Добавен(и) клапан(и) към зоната: {', '.join(valve_ids)}", zone=zone)
     db.commit()
     return {"ok": True}
 
 
 @router.delete("/{zone_id}/valves/{valve_id}", dependencies=[Depends(require_role("admin"))])
-def unassign_valve(zone_id: int, valve_id: str, db: Session = Depends(get_db)):
+def unassign_valve(zone_id: int, valve_id: str, db: Session = Depends(get_db),
+                    user: models.User = Depends(get_current_user)):
     zone = db.get(models.Zone, zone_id)
     if not zone:
         raise HTTPException(404, "Zone not found")
@@ -476,6 +505,7 @@ def unassign_valve(zone_id: int, valve_id: str, db: Session = Depends(get_db)):
     valve = db.get(models.Valve, valve_id)
     if not valve or valve.zone_id != zone_id:
         raise HTTPException(404, "Not found in this zone")
+    audit.log(db, user, "valve_unassign", f"Махнат клапан {valve_id} от зоната", zone=zone)
     _detach_valve_from_zone(db, valve)
     db.commit()
     return {"ok": True}
