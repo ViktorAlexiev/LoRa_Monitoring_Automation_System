@@ -13,7 +13,7 @@
 #define LORA_PREAMBLE_LEN   8
 #define LORA_SYNC_WORD       0x12
 
-#define JITTER_MAX_MS  150   // случайно закъснение преди TX - разминава колизии с други sensor-и
+#define JITTER_MAX_MS  1000  // случайно закъснение преди TX - разминава колизии с други sensor-и
 #define LORA_BEGIN_RETRY_MSG_MS  10000UL   // интервал между диагностични съобщения при неуспешен LoRa.begin()
 
 // Инициализира радиото на честотата от EEPROM. Ако LoRa.begin() се провали, остава в

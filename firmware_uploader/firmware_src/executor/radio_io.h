@@ -18,7 +18,7 @@
 #define STATUS_ACK  0
 #define STATUS_NACK 2
 
-#define JITTER_MAX_MS  150   // случайно закъснение преди heartbeat - разминава колизии с други устройства
+#define JITTER_MAX_MS  1000  // случайно закъснение преди heartbeat - разминава колизии с други устройства
 #define LORA_BEGIN_RETRY_MSG_MS  10000UL   // интервал между диагностични съобщения при неуспешен LoRa.begin()
 
 void radio_setup();          // LoRa.setPins/begin/params/enableCrc/receive

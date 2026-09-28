@@ -17,7 +17,7 @@
 // на едно ниво биха проверили канала (самият достъп до канала е в channel_access.h).
 #define FORWARD_BACKOFF_MAX_MS  50
 // HB jitter - разминава heartbeat-и от различни repeater-и.
-#define HB_JITTER_MAX_MS        150
+#define HB_JITTER_MAX_MS        1000
 
 // Repeater е САМО uplink (RX честота = лентата на подателите, TX честота = лентата по-близо до
 // Gateway). Няма маркер "вече препратен": веригата от repeater-и е разделена по честота (всеки

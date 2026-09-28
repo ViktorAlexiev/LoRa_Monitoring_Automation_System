@@ -333,6 +333,14 @@ static void handleStateResponse(const uint8_t* senderId, const uint8_t* plaintex
 
   StaticJsonDocument<1024> doc;
   doc["id"] = m_id;
+  // Marks this response as the automatic one an Executor sends right after
+  // boot (CRYPTO_TYPE_STATE_RESP_RESTART), as opposed to a normal reply to
+  // OUR OWN module_states_request. Omitted (not just false) for the normal
+  // case, so existing consumers that only check truthiness are unaffected.
+  // This is what lets the backend tell "an executor just restarted" apart
+  // from "we asked for a resync" - see reconciler.py's
+  // _on_module_states_response, which logs the former as a device event.
+  if (isRestart) doc["restart"] = true;
   JsonArray states = doc.createNestedArray("states");
   for (int i = 0; i < entries; i++) {
     int off = i * STATE_ENTRY_LEN;
