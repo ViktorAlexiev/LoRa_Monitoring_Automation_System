@@ -8,6 +8,7 @@ MAX_CONSUMERS = 10
 ID_PATTERN = re.compile(r'^[A-Z]+[0-9]+$')
 PIN_NUMERIC_PATTERN = re.compile(r'^[0-9]{1,2}$')
 PIN_LETTER_PATTERN = re.compile(r'^[A-Z][0-9]$')
+ESP32_MAX_GPIO = 39
 
 
 def validate_module_id(value):
@@ -30,22 +31,26 @@ def validate_consumer_id(value):
     return True, ""
 
 
-def validate_pin(value, reserved_pins=None):
+def validate_pin(value, reserved_pins=None, esp32=False):
     if not value:
         return False, "Pin е празно"
     if len(value) > 2:
         return False, "Pin може да е макс 2 символа"
-    if not (PIN_NUMERIC_PATTERN.match(value) or PIN_LETTER_PATTERN.match(value)):
+    if esp32:
+        # ESP32: пиновете са GPIO номера 0..39 (без аналогови имена от типа A3)
+        if not PIN_NUMERIC_PATTERN.match(value) or int(value) > ESP32_MAX_GPIO:
+            return False, f"Pin: GPIO номер на ESP32 (число 0-{ESP32_MAX_GPIO})"
+    elif not (PIN_NUMERIC_PATTERN.match(value) or PIN_LETTER_PATTERN.match(value)):
         return False, "Pin: число (макс 2 цифри) или главна буква + число (напр. A3)"
     if reserved_pins and value in reserved_pins:
         return False, f"Pin '{value}' е резервиран (виж Settings)"
     return True, ""
 
 
-def validate_consumers_list(consumers, reserved_pins=None, existing_consumer_ids=None):
+def validate_consumers_list(consumers, reserved_pins=None, existing_consumer_ids=None, esp32=False):
     """consumers: list of dicts {'id':..., 'pin':...}
     Стар вариант - връща само първата грешка (пазен за съвместимост)."""
-    row_errors, general_errors = validate_consumers_detailed(consumers, reserved_pins, existing_consumer_ids)
+    row_errors, general_errors = validate_consumers_detailed(consumers, reserved_pins, existing_consumer_ids, esp32)
     if general_errors:
         return False, general_errors[0]
     if row_errors:
@@ -54,7 +59,7 @@ def validate_consumers_list(consumers, reserved_pins=None, existing_consumer_ids
     return True, ""
 
 
-def validate_consumers_detailed(consumers, reserved_pins=None, existing_consumer_ids=None):
+def validate_consumers_detailed(consumers, reserved_pins=None, existing_consumer_ids=None, esp32=False):
     """consumers: list of dicts {'id':..., 'pin':...}
     Връща (row_errors, general_errors):
       row_errors: dict {index (0-based): [списък от съобщения за тази конкретна консуматорска редица]}
@@ -74,7 +79,7 @@ def validate_consumers_detailed(consumers, reserved_pins=None, existing_consumer
         ok, msg = validate_consumer_id(c['id'])
         if not ok:
             msgs.append(msg)
-        ok, msg = validate_pin(c['pin'], reserved_pins)
+        ok, msg = validate_pin(c['pin'], reserved_pins, esp32)
         if not ok:
             msgs.append(msg)
         if existing_consumer_ids and c['id'] in existing_consumer_ids:

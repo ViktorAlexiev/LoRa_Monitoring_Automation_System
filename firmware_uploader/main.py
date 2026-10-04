@@ -36,6 +36,46 @@ def load_config(path="config.ini"):
     return parser
 
 
+def board_profile(app, device_type, cmd_via="lora"):
+    """Какво се качва за дадено устройство според избраната платка (ATmega / ESP32 PCB).
+    platform "avr"  : sensor/executor/repeater на ATmega (EEPROM), gateway на TTGO (ESP32, NVS);
+    platform "esp32": всички устройства на ESP32 PCB (NVS), firmware от firmware_src/ESP32_PCB(temp_hum).
+    cmd_via (само executor на ESP32 PCB): "lora" -> executor, "wifi" -> executor_wifi."""
+    paths = app.cfg["paths"]
+    if app.get_platform() == "esp32":
+        fw_key = "executor_wifi" if (device_type == "executor" and cmd_via == "wifi") else device_type
+        return {"platform": "esp32", "chip": "esp32",
+                "config_fw": paths["firmware_pcb_config_esp32"],
+                "real_fw": paths[f"firmware_pcb_{fw_key}"],
+                "reserved": app.get_reserved_pins(esp32=True), "esp32_pins": True}
+    chip = "esp32" if device_type == "gateway" else "avr"
+    return {"platform": "avr", "chip": chip,
+            "config_fw": paths["firmware_config_esp32"] if chip == "esp32" else paths["firmware_config_avr"],
+            "real_fw": paths[f"firmware_{device_type}"],
+            "reserved": app.get_reserved_pins(), "esp32_pins": False}
+
+
+def upload_fw(app, prof, fw_path, port, real=False):
+    """Качва .hex (AVR) или .bin (ESP32). ESP32: config-firmware (merged) на 0x0, реалният
+    (app-only) на 0x10000 - НЕ пипа NVS партицията."""
+    paths = app.cfg["paths"]
+    serial_cfg = app.cfg["serial"]
+    if prof["chip"] == "esp32":
+        return upload_firmware_esp32(paths["esptool_path"], fw_path, port,
+                                      baud=int(serial_cfg["baud_upload_esp32"]),
+                                      address="0x10000" if real else "0x0")
+    return upload_firmware_avr(paths["avrdude_path"], fw_path, port,
+                                baud=int(serial_cfg["baud_upload_avr"]))
+
+
+def send_cfg(app, prof, port, packet):
+    serial_cfg = app.cfg["serial"]
+    key = "baud_config_esp32" if prof["chip"] == "esp32" else "baud_config_avr"
+    return send_config_packet(port, int(serial_cfg[key]), packet,
+                               timeout=int(serial_cfg["config_timeout"]),
+                               board_type=prof["chip"])
+
+
 def list_serial_ports():
     try:
         from serial.tools import list_ports
@@ -553,13 +593,8 @@ class SimpleDeviceFrame(ttk.Frame):
             self.status_label.config(text="Има грешки - виж маркираните полета по-горе.", foreground="#DC2626")
             return
 
-        paths = self.app.cfg["paths"]
-        if self.is_esp32:
-            ok, out = upload_firmware_esp32(paths["esptool_path"], paths["firmware_config_esp32"], port,
-                                             baud=int(self.app.cfg["serial"]["baud_upload_esp32"]))
-        else:
-            ok, out = upload_firmware_avr(paths["avrdude_path"], paths["firmware_config_avr"], port,
-                                       baud=int(self.app.cfg["serial"]["baud_upload_avr"]))
+        prof = board_profile(self.app, self.device_type)
+        ok, out = upload_fw(self.app, prof, prof["config_fw"], port)
         if not ok:
             self.status_label.config(text=f"Грешка при upload на config-firmware: {out}", foreground="#DC2626")
             return
@@ -568,6 +603,7 @@ class SimpleDeviceFrame(ttk.Frame):
                   "sf": str(self.sf), "bw": str(self.bw_hz)}   # SF/BW - еднакви за цялата мрежа
         if self.is_gateway:
             packet.update({
+                "net": "1",   # ESP32 config-firmware: Wi-Fi/MQTT полетата са задължителни
                 "wifi_ssid": wifi_ssid,
                 "wifi_password": wifi_password,
                 "mqtt_ip": mqtt_ip,
@@ -583,23 +619,13 @@ class SimpleDeviceFrame(ttk.Frame):
             k = self._selected_lane()
             packet["freq"] = str(self.lanes_hz[k])          # RX - входна лента (EEPROM addr 67)
             packet["freq_tx"] = str(self.lanes_hz[k - 1])   # TX - лента по-близо до Gateway (EEPROM addr 71)
-        cfg_baud_key = "baud_config_esp32" if self.is_esp32 else "baud_config_avr"
-        ok, msg2 = send_config_packet(port, int(self.app.cfg["serial"][cfg_baud_key]), packet,
-                                       timeout=int(self.app.cfg["serial"]["config_timeout"]),
-                                       board_type="esp32" if self.is_esp32 else "avr")
+        ok, msg2 = send_cfg(self.app, prof, port, packet)
         if not ok:
             self.status_label.config(text=f"Грешка при config пакет: {msg2}", foreground="#DC2626")
             return
 
-        real_fw = paths[f"firmware_{self.device_type}"]
-        if self.is_esp32:
-            # app-only bin на 0x10000 - НЕ пипа NVS партицията (там е config-а, качен току-що)
-            ok, out = upload_firmware_esp32(paths["esptool_path"], real_fw, port,
-                                             baud=int(self.app.cfg["serial"]["baud_upload_esp32"]),
-                                             address="0x10000")
-        else:
-            ok, out = upload_firmware_avr(paths["avrdude_path"], real_fw, port,
-                                       baud=int(self.app.cfg["serial"]["baud_upload_avr"]))
+        # ESP32: app-only bin на 0x10000 - НЕ пипа NVS партицията (там е config-а, качен току-що)
+        ok, out = upload_fw(self.app, prof, prof["real_fw"], port, real=True)
         if not ok:
             self.status_label.config(text=f"Грешка при upload на firmware: {out}", foreground="#DC2626")
             return
@@ -623,6 +649,7 @@ class SimpleDeviceFrame(ttk.Frame):
             gw_params = {"lane_rx": k, "freq_rx_hz": self.lanes_hz[k], "freq_tx_hz": self.lanes_hz[k - 1]}
         gw_params["sf"] = self.sf
         gw_params["bw_hz"] = self.bw_hz
+        gw_params["platform"] = prof["platform"]
         upsert_registry(self.app.db_path, module_id, self.device_type, gw_params, lat, lon)
         add_log(self.app.db_path, self.device_type, module_id, gw_params, lat, lon, action="upload")
         self.status_label.config(text="Успешно качено!", foreground="#16A34A")
@@ -648,13 +675,47 @@ class ExecutorFrame(ttk.Frame):
         self.module_id_error_label.grid(row=row, column=2, columnspan=2, sticky="w", padx=5)
         row += 1
 
+        # Само ESP32 PCB: през какво приема команди - LoRa (executor) или Wi-Fi/MQTT (executor_wifi)
+        self.cmd_via_var = tk.StringVar(value="lora")
+        self.via_label = ttk.Label(self, text="Приема команди през:")
+        self.via_label.grid(row=row, column=0, sticky="w", padx=5, pady=5)
+        self.via_frame = ttk.Frame(self)
+        self.via_frame.grid(row=row, column=1, columnspan=3, sticky="w")
+        ttk.Radiobutton(self.via_frame, text="LoRa (от Gateway)", value="lora", variable=self.cmd_via_var,
+                        command=self._update_visibility).pack(side="left")
+        ttk.Radiobutton(self.via_frame, text="Wi-Fi / MQTT (директно)", value="wifi", variable=self.cmd_via_var,
+                        command=self._update_visibility).pack(side="left", padx=10)
+        row += 1
+
         # Executor говори директно с Gateway - показва (не редактира) Gateway честотата.
         gw_hz, _rp_hz = self.app.get_lora_frequencies_hz()
         self.freq_gw_hz = gw_hz
-        ttk.Label(self, text="LoRa честота:").grid(row=row, column=0, sticky="w", padx=5, pady=5)
+        self.freq_title_label = ttk.Label(self, text="LoRa честота:")
+        self.freq_title_label.grid(row=row, column=0, sticky="w", padx=5, pady=5)
         self.freq_info_label = ttk.Label(self, text=f"{gw_hz / 1e6:g} MHz (към Gateway)")
         self.freq_info_label.grid(row=row, column=1, columnspan=3, sticky="w")
         row += 1
+
+        # Wi-Fi / MQTT полета (само при "Wi-Fi / MQTT (директно)")
+        self.net_widgets = []
+        self.net_vars = {}
+        self.net_errors = {}
+        net_fields = [("wifi_ssid", "WiFi SSID:", False), ("wifi_password", "WiFi Password (може празно):", True),
+                      ("mqtt_ip", "MQTT IP/host:", False), ("mqtt_port", "MQTT Port (default 1883):", False),
+                      ("mqtt_user", "MQTT User (може празно):", False),
+                      ("mqtt_password", "MQTT Password (може празно):", True)]
+        for key, label, secret in net_fields:
+            lbl = ttk.Label(self, text=label)
+            lbl.grid(row=row, column=0, sticky="w", padx=5, pady=5)
+            var = tk.StringVar()
+            entry = ttk.Entry(self, textvariable=var, width=20, show="*" if secret else "")
+            entry.grid(row=row, column=1, sticky="w")
+            err = ttk.Label(self, text="", foreground="#DC2626")
+            err.grid(row=row, column=2, columnspan=2, sticky="w", padx=5)
+            self.net_vars[key] = var
+            self.net_errors[key] = err
+            self.net_widgets += [lbl, entry, err]
+            row += 1
 
         ttk.Label(self, text="Консуматори:").grid(row=row, column=0, sticky="nw", padx=5, pady=5)
         self.consumers_frame = ttk.Frame(self)
@@ -695,18 +756,33 @@ class ExecutorFrame(ttk.Frame):
         self.status_label.grid(row=row, column=0, columnspan=4, sticky="w", padx=5)
         row += 1
 
-        rules = (
-            "Правила:\n"
-            "- Module ID: макс 6 символа, главни букви в началото, после цифри (напр. CS001)\n"
-            "- Consumer ID: макс 4 символа, главни букви в началото, после цифри, глобално уникално\n"
-            "- Pin: макс 2 символа - число (макс 2 цифри) или главна буква + число (напр. A3)\n"
-            "- Максимум 10 консуматора, без дублирани ID/pin в списъка\n"
-        )
-        ttk.Label(self, text=rules, foreground="#57544C", justify="left").grid(
-            row=row, column=0, columnspan=4, sticky="w", padx=5, pady=10)
+        self.rules_label = ttk.Label(self, text="", foreground="#57544C", justify="left")
+        self.rules_label.grid(row=row, column=0, columnspan=4, sticky="w", padx=5, pady=10)
 
         self.add_consumer_row()
         self.refresh_ports()
+        self._update_visibility()
+
+    def _update_visibility(self):
+        """Показва/скрива избора LoRa|Wi-Fi и Wi-Fi/MQTT полетата според избраната платка."""
+        esp32 = self.app.get_platform() == "esp32"
+        if not esp32:
+            self.cmd_via_var.set("lora")   # ATmega executor приема само по LoRa
+        wifi = esp32 and self.cmd_via_var.get() == "wifi"
+        for w in (self.via_label, self.via_frame):
+            (w.grid if esp32 else w.grid_remove)()
+        for w in (self.freq_title_label, self.freq_info_label):
+            (w.grid_remove if wifi else w.grid)()
+        for w in self.net_widgets:
+            (w.grid if wifi else w.grid_remove)()
+        pin_rule = ("- Pin: GPIO номер на ESP32 (число 0-39), без резервираните от Settings\n" if esp32 else
+                    "- Pin: макс 2 символа - число (макс 2 цифри) или главна буква + число (напр. A3)\n")
+        self.rules_label.config(text=(
+            "Правила:\n"
+            "- Module ID: макс 6 символа, главни букви в началото, после цифри (напр. CS001)\n"
+            "- Consumer ID: макс 4 символа, главни букви в началото, после цифри, глобално уникално\n"
+            + pin_rule +
+            "- Максимум 10 консуматора, без дублирани ID/pin в списъка\n"))
 
     def add_consumer_row(self):
         if len(self.consumer_rows) >= 10:
@@ -751,9 +827,12 @@ class ExecutorFrame(ttk.Frame):
         self.status_label.config(text="")
         for r in self.consumer_rows:
             r["error_label"].config(text="")
+        for lbl in self.net_errors.values():
+            lbl.config(text="")
 
     def on_tab_selected(self):
         self._clear_messages()
+        self._update_visibility()
         gw_hz, _rp_hz = self.app.get_lora_frequencies_hz()
         self.freq_gw_hz = gw_hz
         self.freq_info_label.config(text=f"{gw_hz / 1e6:g} MHz (към Gateway)")
@@ -784,9 +863,11 @@ class ExecutorFrame(ttk.Frame):
             pin = r["pin_var"].get().strip().upper()
             consumers.append({"id": cid, "pin": pin})
 
-        reserved_pins = self.app.get_reserved_pins()
+        cmd_via = self.cmd_via_var.get() if self.app.get_platform() == "esp32" else "lora"
+        prof = board_profile(self.app, "executor", cmd_via)
         existing_ids = get_all_active_consumer_ids(self.app.db_path, exclude_module_id=module_id)
-        row_errors, general_errors = validate_consumers_detailed(consumers, reserved_pins, existing_ids)
+        row_errors, general_errors = validate_consumers_detailed(consumers, prof["reserved"], existing_ids,
+                                                                  esp32=prof["esp32_pins"])
 
         if general_errors:
             self.consumers_general_error_label.config(text="; ".join(general_errors))
@@ -796,6 +877,27 @@ class ExecutorFrame(ttk.Frame):
             for idx, msgs in row_errors.items():
                 if idx < len(self.consumer_rows):
                     self.consumer_rows[idx]["error_label"].config(text="; ".join(msgs))
+
+        net = {}
+        if cmd_via == "wifi":
+            # Wi-Fi/MQTT параметри (същите проверки като при Gateway)
+            net = {"wifi_ssid": self.net_vars["wifi_ssid"].get().strip(),
+                   "wifi_password": self.net_vars["wifi_password"].get(),
+                   "mqtt_ip": self.net_vars["mqtt_ip"].get().strip(),
+                   "mqtt_user": self.net_vars["mqtt_user"].get().strip(),
+                   "mqtt_password": self.net_vars["mqtt_password"].get()}
+            port_in = self.net_vars["mqtt_port"].get().strip()
+            net["mqtt_port"] = port_in if port_in else "1883"
+            checks = [("wifi_ssid", validate_wifi_ssid(net["wifi_ssid"])),
+                      ("wifi_password", validate_wifi_password(net["wifi_password"])),
+                      ("mqtt_ip", validate_mqtt_host(net["mqtt_ip"])),
+                      ("mqtt_port", validate_mqtt_port(port_in)),
+                      ("mqtt_user", validate_mqtt_user(net["mqtt_user"])),
+                      ("mqtt_password", validate_mqtt_password(net["mqtt_password"]))]
+            for key, (ok_f, msg_f) in checks:
+                if not ok_f:
+                    self.net_errors[key].config(text=msg_f)
+                    has_errors = True
 
         lat, lon = None, None
         try:
@@ -814,29 +916,35 @@ class ExecutorFrame(ttk.Frame):
             self.status_label.config(text="Има грешки - виж маркираните полета по-горе.", foreground="#DC2626")
             return
 
-        paths = self.app.cfg["paths"]
-        ok, out = upload_firmware_avr(paths["avrdude_path"], paths["firmware_config_avr"], port,
-                                       baud=int(self.app.cfg["serial"]["baud_upload_avr"]))
+        ok, out = upload_fw(self.app, prof, prof["config_fw"], port)
         if not ok:
             self.status_label.config(text=f"Грешка при upload на config-firmware: {out}", foreground="#DC2626")
             return
 
         sf, bw_hz = self.app.get_lora_sf_bw()
-        packet = {"id": module_id, "consumers": consumers, "freq": str(self.freq_gw_hz),
-                  "key": NETWORK_KEY_HEX, "sf": str(sf), "bw": str(bw_hz)}
-        ok, msg2 = send_config_packet(port, int(self.app.cfg["serial"]["baud_config_avr"]), packet,
-                                       timeout=int(self.app.cfg["serial"]["config_timeout"]))
+        if cmd_via == "wifi":
+            # executor_wifi: без LoRa (няма честота/SF/BW/ключ) - само ID, консуматори и Wi-Fi/MQTT
+            packet = {"id": module_id, "consumers": consumers, "net": "1"}
+            packet.update(net)
+        else:
+            packet = {"id": module_id, "consumers": consumers, "freq": str(self.freq_gw_hz),
+                      "key": NETWORK_KEY_HEX, "sf": str(sf), "bw": str(bw_hz)}
+        ok, msg2 = send_cfg(self.app, prof, port, packet)
         if not ok:
             self.status_label.config(text=f"Грешка при config пакет: {msg2}", foreground="#DC2626")
             return
 
-        ok, out = upload_firmware_avr(paths["avrdude_path"], paths["firmware_executor"], port,
-                                       baud=int(self.app.cfg["serial"]["baud_upload_avr"]))
+        ok, out = upload_fw(self.app, prof, prof["real_fw"], port, real=True)
         if not ok:
             self.status_label.config(text=f"Грешка при upload на executor firmware: {out}", foreground="#DC2626")
             return
 
-        params = {"consumers": consumers, "freq_hz": self.freq_gw_hz, "sf": sf, "bw_hz": bw_hz}
+        if cmd_via == "wifi":
+            params = {"consumers": consumers, "cmd_via": "wifi", "platform": prof["platform"]}
+            params.update(net)
+        else:
+            params = {"consumers": consumers, "freq_hz": self.freq_gw_hz, "sf": sf, "bw_hz": bw_hz,
+                      "cmd_via": "lora", "platform": prof["platform"]}
         upsert_registry(self.app.db_path, module_id, "executor", params, lat, lon)
         add_log(self.app.db_path, "executor", module_id, params, lat, lon, action="upload")
         self.status_label.config(text="Успешно качено!", foreground="#16A34A")
@@ -1223,6 +1331,14 @@ class SettingsFrame(ttk.Frame):
                               "премахнати от този списък.", foreground="#666666", wraplength=420,
                   justify="left").pack(anchor="w", padx=5, pady=(0, 5))
 
+        ttk.Label(self, text="Резервирани пинове за ESP32 PCB (GPIO номера, comma separated):").pack(
+            anchor="w", padx=5, pady=(10, 0))
+        self.reserved_esp32_var = tk.StringVar(value=self.app.cfg["reserved_pins"].get("pins_esp32", ""))
+        ttk.Entry(self, textvariable=self.reserved_esp32_var, width=40).pack(anchor="w", padx=5, pady=5)
+        ttk.Label(self, text="Попълни според реалните пинове на платката (LoRa SPI/CS/RST/DIO0, I2C, flash пинове "
+                              "6-11, пинове само за вход 34-39). Не са зададени окончателно - виж board_pins.h.",
+                  foreground="#666666", wraplength=420, justify="left").pack(anchor="w", padx=5, pady=(0, 5))
+
         ttk.Label(self, text="LoRa честоти (MHz, без водещи нули - напр. 433, или 433.5 за междинна):",
                   font=("", 10, "bold")).pack(anchor="w", padx=5, pady=(15, 0))
 
@@ -1366,12 +1482,14 @@ class SettingsFrame(ttk.Frame):
                 self.sf_var.set(prev["sf"])
                 self.bw_var.set(prev["bw"])
                 self.app.cfg["reserved_pins"]["pins"] = self.reserved_var.get()
+                self.app.cfg["reserved_pins"]["pins_esp32"] = self.reserved_esp32_var.get()
                 self._write_config()
                 self.status_label.config(text="Отказано - радио настройките са върнати към старите стойности.",
                                           foreground="#D97706")
                 return
 
         self.app.cfg["reserved_pins"]["pins"] = self.reserved_var.get()
+        self.app.cfg["reserved_pins"]["pins_esp32"] = self.reserved_esp32_var.get()
         lora["freq_gateway_mhz"] = new["gw"]
         lora["freq_repeater_mhz"] = new["rp"]
         lora["extra_lanes_mhz"] = new["extra"]
@@ -1415,6 +1533,7 @@ class App:
         style.configure("TFrame", background=BG)
         style.configure("TLabel", background=BG, foreground=TEXT_PRIMARY)
         style.configure("TCheckbutton", background=BG, foreground=TEXT_PRIMARY)
+        style.configure("TRadiobutton", background=BG, foreground=TEXT_PRIMARY)
         style.configure("TNotebook", background=BG, borderwidth=0)
         style.configure("TNotebook.Tab", background=BG, foreground=TEXT_SECONDARY,
                          padding=[12, 6], borderwidth=0)
@@ -1467,6 +1586,21 @@ class App:
         self.auto_disconnect_monitor = self.cfg["serial_monitor"].getboolean(
             "auto_disconnect_on_tab_change", fallback=True)
         self.current_tab_widget = None
+
+        # ---- Избор на платка: ATmega (LoRa radio node) или ESP32 PCB ----
+        # Определя кои firmware файлове се качват и с какъв инструмент (avrdude / esptool), как се
+        # пази конфигурацията (EEPROM / NVS) и какви пинове са позволени за консуматорите.
+        if "platform" not in self.cfg:
+            self.cfg["platform"] = {}
+        board = self.cfg["platform"].get("board", "avr")
+        self.platform_var = tk.StringVar(value=board if board in ("avr", "esp32") else "avr")
+        top = ttk.Frame(root)
+        top.pack(fill="x", padx=8, pady=(6, 0))
+        ttk.Label(top, text="Платка:", font=("Segoe UI", 10, "bold")).pack(side="left")
+        ttk.Radiobutton(top, text="ATmega (LoRa radio node)", value="avr", variable=self.platform_var,
+                        command=self.on_platform_changed).pack(side="left", padx=(10, 4))
+        ttk.Radiobutton(top, text="ESP32 PCB", value="esp32", variable=self.platform_var,
+                        command=self.on_platform_changed).pack(side="left", padx=4)
 
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True)
@@ -1536,8 +1670,20 @@ class App:
             self.known_ports = current
         self.root.after(2000, self.poll_ports)
 
-    def get_reserved_pins(self):
-        raw = self.cfg["reserved_pins"].get("pins", "")
+    def get_platform(self):
+        """"avr" (ATmega LoRa radio node + TTGO gateway) или "esp32" (ESP32 PCB)."""
+        return self.platform_var.get()
+
+    def on_platform_changed(self):
+        self.cfg["platform"]["board"] = self.platform_var.get()
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            self.cfg.write(f)
+        # опресни текущия таб (Executor показва/скрива избора LoRa|Wi-Fi)
+        if self.current_tab_widget is not None and hasattr(self.current_tab_widget, "on_tab_selected"):
+            self.current_tab_widget.on_tab_selected()
+
+    def get_reserved_pins(self, esp32=False):
+        raw = self.cfg["reserved_pins"].get("pins_esp32" if esp32 else "pins", "")
         return set(p.strip().upper() for p in raw.split(",") if p.strip())
 
     def get_lora_lanes_hz(self):

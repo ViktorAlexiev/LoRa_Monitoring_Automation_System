@@ -21,8 +21,8 @@
 // на терен) - вика LoRa.begin() отново на всеки опит.
 void lora_init();
 
-// Строи криптирания wire пакет (S_ID в чисто, 4-те float-а криптирани), праща по LoRa
-// (с jitter преди TX), после приспива радиото.
+// Строи криптирания wire пакет (S_ID в чисто, 4-те стойности като int16 x100 криптирани -
+// 22 B общо), праща по LoRa (с jitter преди TX), после приспива радиото.
 void send_sensor_packet(float s_t, float s_h, float a_t, float a_h);
 
 #endif

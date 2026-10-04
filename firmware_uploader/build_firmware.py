@@ -9,10 +9,17 @@ build_firmware.py
     arduino-cli core install arduino:avr
     arduino-cli core install esp32:esp32
 
-Кои папки да компилира и към кой тип борд се задават в config.ini,
-секция [build_targets] (име_на_папка = avr/esp32).
+Кои папки да компилира и към кой тип борд се задават в config.ini:
+  [build_targets]             - ATmega LoRa radio node + TTGO gateway (firmware_src_dir)
+  [build_targets_esp32_pcb]   - ESP32 PCB (firmware_src_dir_esp32_pcb, FQBN: esp32_pcb_fqbn)
+(име_на_папка = avr / esp32_merged / esp32_app). Резултатите на ESP32 PCB отиват в firmware/esp32_pcb/.
 
-Пускане:  python build_firmware.py
+Изисква Arduino библиотеките Crypto, AES_CMAC, PubSubClient, ArduinoJson, LoRa (с public
+readRegister/writeRegister - виж cad.h) и Adafruit_SHT31.
+
+Пускане:  python build_firmware.py            (двата набора)
+          python build_firmware.py avr         (само ATmega + TTGO)
+          python build_firmware.py esp32_pcb   (само ESP32 PCB)
 """
 
 import os
@@ -81,33 +88,17 @@ def find_output_file(out_dir, sketch_name, extension, board_type):
     return None
 
 
-def main():
-    cfg = load_config()
-
-    if "build" not in cfg or "build_targets" not in cfg:
-        print("Липсват секции [build] / [build_targets] в config.ini")
-        sys.exit(1)
-
-    arduino_cli_path = cfg["build"]["arduino_cli_path"]
-    avr_fqbn = cfg["build"]["avr_fqbn"]
-    esp32_fqbn = cfg["build"]["esp32_fqbn"]
-    src_root = cfg["build"]["firmware_src_dir"]
-
-    # изходната папка "firmware/" - взимаме я от някой съществуващ path в [paths]
-    out_root = os.path.dirname(cfg["paths"]["firmware_config_avr"])
+def build_set(label, arduino_cli_path, src_root, targets, avr_fqbn, esp32_fqbn, out_root):
+    """Компилира един набор скечове (папка src_root) и слага резултатите в out_root.
+    Връща (успешни, неуспешни)."""
     os.makedirs(out_root, exist_ok=True)
-
     if not os.path.isdir(src_root):
-        print(f"Няма папка {src_root}")
-        sys.exit(1)
-
-    targets = cfg["build_targets"]
-    if not targets:
-        print("Няма зададени build_targets в config.ini")
-        sys.exit(1)
+        print(f"[{label}] Няма папка {src_root}")
+        return 0, 1
 
     ok_count = 0
     fail_count = 0
+    print(f"=== {label}: {src_root} -> {out_root} ===")
 
     for name, board_type in targets.items():
         board_type = board_type.strip().lower()
@@ -145,7 +136,46 @@ def main():
             print(f"[OK] {name} -> {dest}")
             ok_count += 1
 
-    print(f"\nГотово. Успешни: {ok_count}, Неуспешни: {fail_count}")
+    return ok_count, fail_count
+
+
+def main():
+    cfg = load_config()
+
+    if "build" not in cfg:
+        print("Липсва секция [build] в config.ini")
+        sys.exit(1)
+
+    # Кой набор да се компилира: avr (ATmega + TTGO), esp32_pcb (ESP32 платката) или all (по подразбиране)
+    which = sys.argv[1].lower() if len(sys.argv) > 1 else "all"
+    if which not in ("avr", "esp32_pcb", "all"):
+        print("Употреба: python build_firmware.py [avr|esp32_pcb|all]")
+        sys.exit(1)
+
+    build = cfg["build"]
+    arduino_cli_path = build["arduino_cli_path"]
+    avr_fqbn = build["avr_fqbn"]
+    esp32_fqbn = build["esp32_fqbn"]
+
+    total_ok = total_fail = 0
+
+    if which in ("avr", "all") and "build_targets" in cfg:
+        # изходната папка "firmware/" - взимаме я от някой съществуващ path в [paths]
+        out_root = os.path.dirname(cfg["paths"]["firmware_config_avr"])
+        ok, fail = build_set("ATmega + TTGO", arduino_cli_path, build["firmware_src_dir"],
+                             cfg["build_targets"], avr_fqbn, esp32_fqbn, out_root)
+        total_ok += ok
+        total_fail += fail
+
+    if which in ("esp32_pcb", "all") and "build_targets_esp32_pcb" in cfg:
+        out_root = os.path.dirname(cfg["paths"]["firmware_pcb_config_esp32"])
+        pcb_fqbn = build.get("esp32_pcb_fqbn", "esp32:esp32:esp32")
+        ok, fail = build_set("ESP32 PCB", arduino_cli_path, build["firmware_src_dir_esp32_pcb"],
+                             cfg["build_targets_esp32_pcb"], avr_fqbn, pcb_fqbn, out_root)
+        total_ok += ok
+        total_fail += fail
+
+    print(f"\nГотово. Успешни: {total_ok}, Неуспешни: {total_fail}")
 
 
 if __name__ == "__main__":

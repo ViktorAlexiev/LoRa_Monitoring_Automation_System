@@ -18,6 +18,26 @@
 
 ---
 
+## Избор на платка (ATmega / ESP32 PCB)
+
+Най-горе в приложението има избор **Платка**:
+
+- **ATmega (LoRa radio node)** - Sensor / Executor / Repeater на ATmega328P (конфигурация в EEPROM, firmware от
+  `firmware/`), Gateway на TTGO (ESP32, NVS).
+- **ESP32 PCB** - всички устройства на ESP32 (конфигурация в NVS, firmware от `firmware/esp32_pcb/`: `config_esp32.bin`,
+  `sensor.bin`, `executor.bin`, `executor_wifi.bin`, `repeater.bin`, `gateway.bin`). Config-firmware се качва на 0x0,
+  реалният firmware на 0x10000 (NVS не се пипа).
+
+При **ESP32 PCB** таб **Executor** има избор **Приема команди през**: *LoRa (от Gateway)* или *Wi-Fi / MQTT (директно)*.
+Wi-Fi вариантът (`executor_wifi`) иска WiFi SSID/Password и MQTT IP/Port/User/Password и няма LoRa настройки.
+Пиновете на ESP32 са GPIO номера 0-39; резервираните пинове за ESP32 PCB са отделна настройка в Settings.
+
+Компилиране: `python build_firmware.py [avr|esp32_pcb|all]` (виж `config.ini`: `[build_targets]` и
+`[build_targets_esp32_pcb]`). Пиновете и FQBN на ESP32 PCB са временни (`firmware_src/ESP32_PCB(temp_hum)/*/board_pins.h`,
+`esp32_pcb_fqbn`) - да се попълнят с реалните.
+
+---
+
 ## Структура на папката
 
 ```

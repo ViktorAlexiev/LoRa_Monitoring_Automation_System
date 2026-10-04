@@ -1,0 +1,505 @@
+#include "lora_handlers.h"
+#include <SPI.h>
+#include <LoRa.h>
+#include <ArduinoJson.h>
+#include "packets.h"
+#include "crypto_common.h"
+#include "config_storage.h"
+#include "wifi_mqtt.h"
+#include "cad.h"
+#include "channel_access.h"
+
+void lora_radio_setup() {
+  // времената (CAD, ACK timeout-и) се извеждат от SF/BW, прочетени от NVS
+  radioTimingInit(LORA_SF, LORA_BW_HZ, LORA_CR_DENOM, LORA_PREAMBLE_LEN, true);
+
+  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_CS);
+  LoRa.setPins(LORA_CS, LORA_RST, LORA_DIO0);
+
+  unsigned long lastMsg = 0;
+  while (!LoRa.begin(LORA_FREQ_HZ)) {
+    if (millis() - lastMsg >= LORA_BEGIN_RETRY_MSG_MS) {
+      Serial.println("[ERR] LoRa не стартира (LoRa.begin провал), продължавам да опитвам...");
+      lastMsg = millis();
+    }
+    delay(50);
+  }
+
+  radioApplyModemSettings();   // SF, BW, CR, преамбюл + LDRO (по реалното Ts)
+  LoRa.setTxPower(LORA_TX_POWER_DBM);
+  LoRa.setSyncWord(LORA_SYNC_WORD);
+  LoRa.enableCrc();
+}
+
+// ---------- Sensor/executor wire дължини (криптирани - виж crypto_common.h) ----------
+// Sensor пакет (единствен формат): 4 x int16 little-endian (S_T,S_H,A_T,A_H), стойност = x * 100
+//   -> 8 B plaintext, 22 B wire. Старият 30-байтов формат (4 x float32) вече не се приема.
+// SENSOR_RAW_NODATA (-32768) е единственото число за "няма данни" - без значение дали е грешка
+// при четене или сензорът не е монтиран. В JSON към бекенда се публикува като SENSOR_NODATA_VALUE.
+#define SENSOR_PT_LEN     8    // 4 x int16 (S_T,S_H,A_T,A_H)
+#define SENSOR_WIRE_LEN   (CRYPTO_OVERHEAD + SENSOR_PT_LEN)      // 22
+#define SENSOR_RAW_NODATA     (-32768)
+#define SENSOR_NODATA_VALUE   (-32768.0f)
+#define HB_WIRE_LEN       (CRYPTO_OVERHEAD)                       // 14 (без данни)
+#define ACK_PT_LEN        6    // C_ID(4)+com(1)+status(1)
+#define ACK_WIRE_LEN      (CRYPTO_OVERHEAD + ACK_PT_LEN)          // 20
+#define CMD_PLAINTEXT_LEN 6    // C_ID(4)+com(1)+status(1)
+#define CMD_WIRE_LEN      (MODULE_ID_LEN + CRYPTO_OVERHEAD + CMD_PLAINTEXT_LEN)  // 26 (target+wire)
+// State request и state-resp ACK: target M_ID(чисто) + празен ciphertext wire - еднаква
+// дължина, разграничават се по type-id при decrypt (не по дължина).
+#define STATE_REQ_WIRE_LEN       (MODULE_ID_LEN + CRYPTO_OVERHEAD)   // 20 (Gateway->Executor, не се приема тук)
+// State response (Executor->Gateway, нормален или RESTART): senderId+ciphertext(N*5)+counter+tag,
+// N = брой консуматори (0..10) - variable дължина, разпознава се по (len-OVERHEAD) % 5 == 0.
+#define STATE_ENTRY_LEN            5    // C_ID(4)+state(1), на консуматор
+#define STATE_MAX_CONSUMERS        10   // трябва да съвпада с executor/config_storage.h MAX_CONSUMERS
+
+// ---------- Опашка за изходящи пакети с неблокиращ достъп до канала ----------
+// Команда, state request и state-resp ACK (командният път) не се изпращат веднага, а се
+// подреждат тук. gwTxTick() (викан от lora_managers_tick) върти достъпа до канала на малки
+// стъпки (най-много един CAD на ход) и НЕ блокира приемането на входящи пакети.
+// Опашката е малка: команда и state request са по една в полет, а state-resp ACK-овете могат
+// да са няколко наведнъж (напр. при общо включване на няколко Executor-а).
+#define GW_TX_QUEUE_SIZE 4
+struct GwTxEntry {
+  bool     used;
+  uint8_t  len;
+  uint8_t  buf[CMD_WIRE_LEN];   // най-дългият изходящ пакет (26 B)
+};
+static GwTxEntry     gwTxQueue[GW_TX_QUEUE_SIZE];
+static bool          gwTxAccessActive = false;   // за главата на опашката тече достъп до канала
+static ChannelAccess gwTxAccess;
+
+static bool gwTxEnqueue(const uint8_t *buf, uint8_t len) {
+  for (uint8_t i = 0; i < GW_TX_QUEUE_SIZE; i++) {
+    if (!gwTxQueue[i].used) {
+      memcpy(gwTxQueue[i].buf, buf, len);
+      gwTxQueue[i].len = len;
+      gwTxQueue[i].used = true;
+      return true;
+    }
+  }
+  Serial.println("[ERR] TX опашката е пълна, пакетът е изгубен");
+  return false;
+}
+
+static int8_t gwTxHead() {
+  for (uint8_t i = 0; i < GW_TX_QUEUE_SIZE; i++) if (gwTxQueue[i].used) return (int8_t)i;
+  return -1;
+}
+
+// CAD оставя радиото в standby - връщаме го на слушане само след реално изпълнен CAD
+static bool gwCadRan = false;
+static bool gwCadProbe() {
+  gwCadRan = true;
+  return channelActive();
+}
+
+static void gwTxTick() {
+  int8_t h = gwTxHead();
+  if (h < 0) return;
+  if (!gwTxAccessActive) {
+    channelAccessStart(&gwTxAccess, CH_POLICY_COMMAND);
+    gwTxAccessActive = true;
+  }
+
+  gwCadRan = false;
+  uint8_t r = channelAccessPoll(&gwTxAccess, millis(), gwCadProbe, channelRandom);
+  if (r == CH_WAIT) {
+    if (gwCadRan) LoRa.receive();
+    return;
+  }
+
+  if (r == CH_CLEAR) {
+    LoRa.beginPacket();
+    LoRa.write(gwTxQueue[h].buf, gwTxQueue[h].len);
+    LoRa.endPacket();
+    LoRa.receive();
+    Serial.print("[TX] изпратен пакет, len="); Serial.println(gwTxQueue[h].len);
+  } else {
+    // срокът за сондиране изтече - каналът остана зает. Пакетът се отхвърля; надеждността
+    // е на по-горния слой (retry на командата/state request, retry на Executor за restart).
+    LoRa.receive();
+    Serial.println("[TX] канала остана зает, отказвам се от този пакет (retry на по-горния слой)");
+  }
+  gwTxQueue[h].used = false;
+  gwTxAccessActive = false;
+}
+
+// ---------- Dedup буфер на sensor пакети (пази от дублиране при 2+ repeater-и) ----------
+// Пази суровите radio байтове (ciphertext+counter+tag, различни при всяка трансмисия
+// благодарение на nonce-а) - ring buffer, без timestamp: най-старият запис просто се
+// презаписва при нов. Директният и препратеният от Repeater пакет са еднакви, затова
+// дубликатът се разпознава чрез директно сравнение на цялото съдържание (заедно с дължината).
+// Всеки запис е с размера на най-големия пакет в системата (CRYPTO_OVERHEAD + CRYPTO_MAX_PT =
+// 64 B), не с размера на конкретен формат, и пази реалната си дължина.
+#define GW_DEDUP_BUFFER_SIZE  8
+#define GW_DEDUP_MAX_LEN      (CRYPTO_OVERHEAD + CRYPTO_MAX_PT)   // 64
+
+static uint8_t gwDedupBuf[GW_DEDUP_BUFFER_SIZE][GW_DEDUP_MAX_LEN];
+static uint8_t gwDedupLen[GW_DEDUP_BUFFER_SIZE] = {0};
+static bool    gwDedupUsed[GW_DEDUP_BUFFER_SIZE] = {false};
+static uint8_t gwDedupHead = 0;
+
+static bool gwDedupSeen(const uint8_t *data, uint8_t len) {
+  for (uint8_t i = 0; i < GW_DEDUP_BUFFER_SIZE; i++) {
+    if (gwDedupUsed[i] && gwDedupLen[i] == len && memcmp(gwDedupBuf[i], data, len) == 0) return true;
+  }
+  return false;
+}
+
+static void gwDedupAdd(const uint8_t *data, uint8_t len) {
+  if (len > GW_DEDUP_MAX_LEN) len = GW_DEDUP_MAX_LEN;
+  memcpy(gwDedupBuf[gwDedupHead], data, len);
+  gwDedupLen[gwDedupHead] = len;
+  gwDedupUsed[gwDedupHead] = true;
+  gwDedupHead = (gwDedupHead + 1) % GW_DEDUP_BUFFER_SIZE;
+}
+
+// ---------- Команда "в полет" ----------
+static bool          cmdPending   = false;
+static CommandPacket pendingCmd;
+static unsigned long pendingSentAt = 0;
+static uint8_t       pendingRetries = 0;
+
+// ---------- State request "в полет" ----------
+static bool          stateReqPending = false;
+static char          stateReqM_ID[MODULE_ID_LEN + 1] = {0};
+static unsigned long stateReqSentAt = 0;
+static uint8_t       stateReqRetries = 0;
+
+// ---------------- Публикуване на командeн статус ----------------
+static void publishCommandStatus(const CommandPacket& p, uint8_t status) {
+  char m_id[MODULE_ID_LEN + 1] = {0}; memcpy(m_id, p.M_ID, MODULE_ID_LEN);
+  char c_id[5] = {0}; memcpy(c_id, p.C_ID, 4);
+
+  StaticJsonDocument<160> doc;
+  doc["M_ID"]   = m_id;
+  doc["C_ID"]   = c_id;
+  char comHex[3];
+  snprintf(comHex, sizeof(comHex), "%02X", p.com);
+  doc["com"]    = comHex;
+  doc["status"] = status;
+
+  publishJson(TOPIC_COMMANDS_STATUS, doc);
+
+  Serial.print("[STATUS] "); Serial.print(m_id); Serial.print("/"); Serial.print(c_id);
+  Serial.print(" com="); Serial.print(comHex);
+  Serial.print(" status="); Serial.println(status);
+}
+
+// Команда (криптирана): [target M_ID, чисто] + [wire: GATEWAY_ID(sender)+ciphertext(C_ID+com+status)+counter+tag]
+// ЕДИН общ nonce поток за командите към ВСИЧКИ executor-и (не per-target) - виж cmdCeilingNext().
+static void sendCommandPacket(const CommandPacket& p) {
+  uint8_t plaintext[CMD_PLAINTEXT_LEN];
+  memcpy(plaintext, p.C_ID, 4);
+  plaintext[4] = p.com;
+  plaintext[5] = p.status;
+
+  uint8_t wireBuf[CMD_WIRE_LEN];
+  memcpy(wireBuf, p.M_ID, MODULE_ID_LEN);   // target, чисто - executor-ът филтрира по това ПРЕДИ decrypt
+
+  cryptoBuildWirePacket(wireBuf + MODULE_ID_LEN, NETWORK_KEY, CRYPTO_TYPE_GW_CMD,
+                         (const uint8_t*)GATEWAY_ID, cmdCeilingNext(), plaintext, sizeof(plaintext));
+
+  gwTxEnqueue(wireBuf, sizeof(wireBuf));   // достъпът до канала е неблокиращ (gwTxTick)
+}
+
+// State request (криптирана): [target M_ID, чисто] + [wire: GATEWAY_ID+ciphertext(0)+counter+tag]
+static void sendStateRequestPacket(const char* m_id) {
+  uint8_t wireBuf[STATE_REQ_WIRE_LEN];
+  memset(wireBuf, 0, MODULE_ID_LEN);
+  strncpy((char*)wireBuf, m_id, MODULE_ID_LEN);
+
+  cryptoBuildWirePacket(wireBuf + MODULE_ID_LEN, NETWORK_KEY, CRYPTO_TYPE_STATE_REQ,
+                         (const uint8_t*)GATEWAY_ID, cmdCeilingNext(), NULL, 0);
+
+  gwTxEnqueue(wireBuf, sizeof(wireBuf));
+}
+
+// State-resp ACK (само за RESTART варианта): [target M_ID, чисто] + [wire: GATEWAY_ID+ciphertext(0)+counter+tag]
+static void sendStateRespAck(const uint8_t* targetM_ID6) {
+  uint8_t wireBuf[STATE_REQ_WIRE_LEN];
+  memcpy(wireBuf, targetM_ID6, MODULE_ID_LEN);
+
+  cryptoBuildWirePacket(wireBuf + MODULE_ID_LEN, NETWORK_KEY, CRYPTO_TYPE_STATE_RESP_ACK,
+                         (const uint8_t*)GATEWAY_ID, cmdCeilingNext(), NULL, 0);
+
+  if (gwTxEnqueue(wireBuf, sizeof(wireBuf))) {
+    Serial.println("[TX STATE_RESP_ACK] заявен");
+  }
+
+  Serial.println("[TX STATE_RESP_ACK] изпратен");
+}
+
+void lora_send_command(const char* m_id, const char* c_id, uint8_t com) {
+  CommandPacket p = {0};
+  strncpy(p.M_ID, m_id, MODULE_ID_LEN);
+  strncpy(p.C_ID, c_id, 4);
+  p.com    = com;
+  p.status = 0xFF;
+
+  pendingCmd     = p;
+  pendingSentAt  = millis();
+  pendingRetries = 0;
+  cmdPending     = true;
+
+  sendCommandPacket(p);
+  Serial.print("[TX CMD] "); Serial.print(m_id); Serial.print("/"); Serial.println(c_id);
+}
+
+void lora_send_state_request(const char* m_id) {
+  memset(stateReqM_ID, 0, MODULE_ID_LEN + 1);
+  strncpy(stateReqM_ID, m_id, MODULE_ID_LEN);
+  stateReqSentAt  = millis();
+  stateReqRetries = 0;
+  stateReqPending = true;
+
+  sendStateRequestPacket(stateReqM_ID);
+  Serial.print("[TX STATE_REQ] "); Serial.println(stateReqM_ID);
+}
+
+// ---------------- MQTT callback (обявена в wifi_mqtt.h, регистрирана там) ----------------
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  if (strcmp(topic, TOPIC_COMMANDS) == 0) {
+    if (cmdPending) {
+      Serial.println("[WARN] команда вече чака - нова игнорирана");
+      return;
+    }
+    StaticJsonDocument<160> doc;
+    if (deserializeJson(doc, payload, length)) { Serial.println("[ERR] Bad JSON commands"); return; }
+
+    const char* m_id = doc["M_ID"] | "";
+    const char* c_id = doc["C_ID"] | "";
+    const char* comStr = doc["com"] | "";
+
+    lora_send_command(m_id, c_id, (uint8_t)strtol(comStr, nullptr, 16));
+  }
+  else if (strcmp(topic, TOPIC_STATE_REQ) == 0) {
+    if (stateReqPending) {
+      Serial.println("[WARN] state request вече чака - нова игнорирана");
+      return;
+    }
+    StaticJsonDocument<96> doc;
+    if (deserializeJson(doc, payload, length)) { Serial.println("[ERR] Bad JSON state req"); return; }
+
+    const char* m_id = doc["M_ID"] | "";
+    if (strlen(m_id) == 0) return;
+
+    lora_send_state_request(m_id);
+  }
+}
+
+// ---------------- ACK/retry мениджъри ----------------
+static void commandAckManager() {
+  if (!cmdPending) return;
+  if (millis() - pendingSentAt >= radioAckTimeoutCmdMs()) {
+    if (pendingRetries < MAX_RETRIES) {
+      pendingRetries++;
+      pendingSentAt = millis();
+      sendCommandPacket(pendingCmd);
+      Serial.print("[RETRY CMD] опит #"); Serial.println(pendingRetries);
+    } else {
+      publishCommandStatus(pendingCmd, STATUS_TIMEOUT);
+      cmdPending = false;
+    }
+  }
+}
+
+static void stateRequestManager() {
+  if (!stateReqPending) return;
+  if (millis() - stateReqSentAt >= radioStateReqTimeoutMs()) {
+    if (stateReqRetries < MAX_RETRIES) {
+      stateReqRetries++;
+      stateReqSentAt = millis();
+      sendStateRequestPacket(stateReqM_ID);
+      Serial.print("[RETRY STATE_REQ] опит #"); Serial.println(stateReqRetries);
+    } else {
+      StaticJsonDocument<96> doc;
+      doc["id"] = stateReqM_ID;
+      doc["status"] = "timeout";
+      publishJson(TOPIC_STATE_RESP, doc);
+      stateReqPending = false;
+      Serial.println("[STATE_REQ] timeout");
+    }
+  }
+}
+
+void lora_managers_tick() {
+  gwTxTick();
+  commandAckManager();
+  stateRequestManager();
+}
+
+// ---------------- Обработка на state response (нормален или RESTART вариант) ----------------
+// В MQTT двата варианта изглеждат абсолютно еднакво (без маркер) - разликата е само, че
+// RESTART вариантът получава ACK обратно по радиото и НЕ е задължително отговор на изрична
+// заявка (може да няма stateReqPending в момента на получаването му).
+static void handleStateResponse(const uint8_t* senderId, const uint8_t* plaintext, uint8_t ptLen, bool isRestart) {
+  char m_id[CRYPTO_ID_LEN + 1] = {0};
+  memcpy(m_id, senderId, CRYPTO_ID_LEN);
+
+  int entries = ptLen / STATE_ENTRY_LEN;
+
+  StaticJsonDocument<1024> doc;
+  doc["id"] = m_id;
+  // Marks this response as the automatic one an Executor sends right after
+  // boot (CRYPTO_TYPE_STATE_RESP_RESTART), as opposed to a normal reply to
+  // OUR OWN module_states_request. Omitted (not just false) for the normal
+  // case, so existing consumers that only check truthiness are unaffected.
+  // This is what lets the backend tell "an executor just restarted" apart
+  // from "we asked for a resync" - see reconciler.py's
+  // _on_module_states_response, which logs the former as a device event.
+  if (isRestart) doc["restart"] = true;
+  JsonArray states = doc.createNestedArray("states");
+  for (int i = 0; i < entries; i++) {
+    int off = i * STATE_ENTRY_LEN;
+    char c_id[5] = {0};
+    memcpy(c_id, plaintext + off, 4);
+    uint8_t st = plaintext[off + 4];
+
+    JsonObject o = states.createNestedObject();
+    o["id"] = c_id;
+    o["state"] = st ? "ON" : "OFF";
+  }
+
+  publishJson(TOPIC_STATE_RESP, doc);
+
+  if (isRestart) {
+    sendStateRespAck(senderId);
+  } else if (stateReqPending && strncmp(m_id, stateReqM_ID, MODULE_ID_LEN) == 0) {
+    stateReqPending = false;
+  }
+
+  Serial.print(isRestart ? "[STATE_RESP RESTART] " : "[STATE_RESP] ");
+  Serial.print(m_id);
+  Serial.print(" entries="); Serial.println(entries);
+}
+
+// ---------------- LoRa пакет -> обработка ----------------
+void lora_handle_incoming(int packetSize) {
+  uint8_t buf[220];
+  int len = 0;
+  while (LoRa.available() && len < (int)sizeof(buf)) {
+    buf[len++] = (uint8_t)LoRa.read();
+  }
+
+  int rssi = LoRa.packetRssi();
+  float snr = LoRa.packetSnr();
+  uint32_t ts = (uint32_t)(millis() / 1000);
+
+  // Приемат се само 22-байтови сензорни пакети (директни или препратени от Repeater - без маркер).
+  if (len == SENSOR_WIRE_LEN) {
+    if (gwDedupSeen(buf, (uint8_t)len)) {
+      Serial.println("  -> дублиран sensor пакет (вече видян), игнориран");
+      return;
+    }
+
+    uint8_t senderId[CRYPTO_ID_LEN];
+    uint8_t plaintext[SENSOR_PT_LEN];
+    uint8_t ptLen;
+    if (!cryptoParseWirePacket(buf, (uint8_t)len, NETWORK_KEY, CRYPTO_TYPE_SENSOR,
+                                senderId, plaintext, &ptLen)) {
+      Serial.println("  -> sensor пакет: невалиден MAC, отхвърлен");
+      return;
+    }
+    gwDedupAdd(buf, (uint8_t)len);
+
+    // Декомпресия: int16 little-endian / 100. SENSOR_RAW_NODATA (-32768) -> публикува се като -32768 ("няма данни", без деление на 100).
+    float v[4];
+    for (uint8_t i = 0; i < 4; i++) {
+      int16_t raw = (int16_t)((uint16_t)plaintext[2 * i] | ((uint16_t)plaintext[2 * i + 1] << 8));
+      v[i] = (raw == SENSOR_RAW_NODATA) ? SENSOR_NODATA_VALUE : raw / 100.0f;
+    }
+
+    char id[CRYPTO_ID_LEN + 1] = {0};
+    memcpy(id, senderId, CRYPTO_ID_LEN);
+
+    StaticJsonDocument<256> doc;
+    doc["id"] = id; doc["soil_t"] = v[0]; doc["soil_h"] = v[1];
+    doc["air_t"] = v[2]; doc["air_h"] = v[3];
+    doc["rssi"] = rssi; doc["snr"] = snr; doc["ts"] = ts;
+
+    publishJson(TOPIC_SENSORS, doc);
+  }
+  else if (len == ACK_WIRE_LEN) {
+    uint8_t senderId[CRYPTO_ID_LEN];
+    uint8_t plaintext[ACK_PT_LEN];
+    uint8_t ptLen;
+    if (!cryptoParseWirePacket(buf, len, NETWORK_KEY, CRYPTO_TYPE_EXEC_ACK, senderId, plaintext, &ptLen)) {
+      Serial.println("  -> ACK: невалиден MAC, отхвърлен");
+      return;
+    }
+
+    CommandPacket p;
+    memset(p.M_ID, 0, MODULE_ID_LEN);
+    memcpy(p.M_ID, senderId, CRYPTO_ID_LEN);
+    memcpy(p.C_ID, plaintext, 4);
+    p.com    = plaintext[4];
+    p.status = plaintext[5];
+
+    if (cmdPending &&
+        memcmp(p.M_ID, pendingCmd.M_ID, MODULE_ID_LEN) == 0 &&
+        memcmp(p.C_ID, pendingCmd.C_ID, 4) == 0 &&
+        p.com == pendingCmd.com) {
+      uint8_t status = (p.status == 0) ? STATUS_ACK : STATUS_NACK;
+      publishCommandStatus(p, status);
+      cmdPending = false;
+    }
+  }
+  // HB от repeater, HB от executor, и state response с 0 консуматора (ptLen=0) имат
+  // еднаква wire дължина (14, без данни) - "типа" не пътува по въздуха, пробваме поред.
+  else if (len == HB_WIRE_LEN) {
+    uint8_t senderId[CRYPTO_ID_LEN];
+    uint8_t plaintext[1];
+    uint8_t ptLen;
+
+    if (cryptoParseWirePacket(buf, len, NETWORK_KEY, CRYPTO_TYPE_REPEATER_HB, senderId, plaintext, &ptLen)) {
+      char id[CRYPTO_ID_LEN + 1] = {0};
+      memcpy(id, senderId, CRYPTO_ID_LEN);
+      StaticJsonDocument<128> doc;
+      doc["id"] = id; doc["rssi"] = rssi; doc["snr"] = snr; doc["ts"] = ts;
+      publishJson(TOPIC_HEARTBEAT, doc);
+      Serial.print(F("[HB REPEATER] ")); Serial.println(id);
+    }
+    else if (cryptoParseWirePacket(buf, len, NETWORK_KEY, CRYPTO_TYPE_EXEC_HB, senderId, plaintext, &ptLen)) {
+      char id[CRYPTO_ID_LEN + 1] = {0};
+      memcpy(id, senderId, CRYPTO_ID_LEN);
+      StaticJsonDocument<128> doc;
+      doc["id"] = id; doc["ts"] = ts;
+      publishJson(TOPIC_HEARTBEAT, doc);
+      Serial.print(F("[HB EXEC] ")); Serial.println(id);
+    }
+    else if (cryptoParseWirePacket(buf, len, NETWORK_KEY, CRYPTO_TYPE_STATE_RESP, senderId, plaintext, &ptLen)) {
+      handleStateResponse(senderId, plaintext, ptLen, false);
+    }
+    else if (cryptoParseWirePacket(buf, len, NETWORK_KEY, CRYPTO_TYPE_STATE_RESP_RESTART, senderId, plaintext, &ptLen)) {
+      handleStateResponse(senderId, plaintext, ptLen, true);
+    }
+    else {
+      Serial.println("  -> HB/STATE(0) пакет: невалиден MAC, отхвърлен");
+    }
+  }
+  // State response с 1+ консуматор - разпознава се по (len - CRYPTO_OVERHEAD) кратно на
+  // STATE_ENTRY_LEN(5). Не съвпада числено с нито един друг тип пакет (ACK ptLen=6,
+  // SENSOR ptLen=16 - нито едно от тях не е кратно на 5).
+  else if (len > CRYPTO_OVERHEAD &&
+           (len - CRYPTO_OVERHEAD) % STATE_ENTRY_LEN == 0 &&
+           (len - CRYPTO_OVERHEAD) <= STATE_MAX_CONSUMERS * STATE_ENTRY_LEN) {
+    uint8_t senderId[CRYPTO_ID_LEN];
+    uint8_t plaintext[STATE_MAX_CONSUMERS * STATE_ENTRY_LEN];
+    uint8_t ptLen;
+
+    if (cryptoParseWirePacket(buf, len, NETWORK_KEY, CRYPTO_TYPE_STATE_RESP, senderId, plaintext, &ptLen)) {
+      handleStateResponse(senderId, plaintext, ptLen, false);
+    }
+    else if (cryptoParseWirePacket(buf, len, NETWORK_KEY, CRYPTO_TYPE_STATE_RESP_RESTART, senderId, plaintext, &ptLen)) {
+      handleStateResponse(senderId, plaintext, ptLen, true);
+    }
+    else {
+      Serial.println("  -> STATE_RESP: невалиден MAC, отхвърлен");
+    }
+  }
+  else {
+    Serial.println("  -> UNKNOWN length, ignored");
+  }
+}

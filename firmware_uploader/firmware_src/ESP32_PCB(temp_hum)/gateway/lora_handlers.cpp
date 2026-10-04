@@ -32,8 +32,14 @@ void lora_radio_setup() {
 }
 
 // ---------- Sensor/executor wire дължини (криптирани - виж crypto_common.h) ----------
-#define SENSOR_PT_LEN     16   // 4 float-а (S_T,S_H,A_T,A_H)
-#define SENSOR_WIRE_LEN   (CRYPTO_OVERHEAD + SENSOR_PT_LEN)      // 30
+// Sensor пакет (единствен формат): 4 x int16 little-endian (S_T,S_H,A_T,A_H), стойност = x * 100
+//   -> 8 B plaintext, 22 B wire. Старият 30-байтов формат (4 x float32) вече не се приема.
+// SENSOR_RAW_NODATA (-32768) е единственото число за "няма данни" - без значение дали е грешка
+// при четене или сензорът не е монтиран. В JSON към бекенда се публикува като SENSOR_NODATA_VALUE.
+#define SENSOR_PT_LEN     8    // 4 x int16 (S_T,S_H,A_T,A_H)
+#define SENSOR_WIRE_LEN   (CRYPTO_OVERHEAD + SENSOR_PT_LEN)      // 22
+#define SENSOR_RAW_NODATA     (-32768)
+#define SENSOR_NODATA_VALUE   (-32768.0f)
 #define HB_WIRE_LEN       (CRYPTO_OVERHEAD)                       // 14 (без данни)
 #define ACK_PT_LEN        6    // C_ID(4)+com(1)+status(1)
 #define ACK_WIRE_LEN      (CRYPTO_OVERHEAD + ACK_PT_LEN)          // 20
@@ -122,23 +128,29 @@ static void gwTxTick() {
 // ---------- Dedup буфер на sensor пакети (пази от дублиране при 2+ repeater-и) ----------
 // Пази суровите radio байтове (ciphertext+counter+tag, различни при всяка трансмисия
 // благодарение на nonce-а) - ring buffer, без timestamp: най-старият запис просто се
-// презаписва при нов. Директният и препратеният от Repeater пакет са еднакви (30 B), затова
-// дубликатът се разпознава чрез директно сравнение на цялото съдържание.
+// презаписва при нов. Директният и препратеният от Repeater пакет са еднакви, затова
+// дубликатът се разпознава чрез директно сравнение на цялото съдържание (заедно с дължината).
+// Всеки запис е с размера на най-големия пакет в системата (CRYPTO_OVERHEAD + CRYPTO_MAX_PT =
+// 64 B), не с размера на конкретен формат, и пази реалната си дължина.
 #define GW_DEDUP_BUFFER_SIZE  8
+#define GW_DEDUP_MAX_LEN      (CRYPTO_OVERHEAD + CRYPTO_MAX_PT)   // 64
 
-static uint8_t gwDedupBuf[GW_DEDUP_BUFFER_SIZE][SENSOR_WIRE_LEN];
+static uint8_t gwDedupBuf[GW_DEDUP_BUFFER_SIZE][GW_DEDUP_MAX_LEN];
+static uint8_t gwDedupLen[GW_DEDUP_BUFFER_SIZE] = {0};
 static bool    gwDedupUsed[GW_DEDUP_BUFFER_SIZE] = {false};
 static uint8_t gwDedupHead = 0;
 
-static bool gwDedupSeen(const uint8_t *data) {
+static bool gwDedupSeen(const uint8_t *data, uint8_t len) {
   for (uint8_t i = 0; i < GW_DEDUP_BUFFER_SIZE; i++) {
-    if (gwDedupUsed[i] && memcmp(gwDedupBuf[i], data, SENSOR_WIRE_LEN) == 0) return true;
+    if (gwDedupUsed[i] && gwDedupLen[i] == len && memcmp(gwDedupBuf[i], data, len) == 0) return true;
   }
   return false;
 }
 
-static void gwDedupAdd(const uint8_t *data) {
-  memcpy(gwDedupBuf[gwDedupHead], data, SENSOR_WIRE_LEN);
+static void gwDedupAdd(const uint8_t *data, uint8_t len) {
+  if (len > GW_DEDUP_MAX_LEN) len = GW_DEDUP_MAX_LEN;
+  memcpy(gwDedupBuf[gwDedupHead], data, len);
+  gwDedupLen[gwDedupHead] = len;
   gwDedupUsed[gwDedupHead] = true;
   gwDedupHead = (gwDedupHead + 1) % GW_DEDUP_BUFFER_SIZE;
 }
@@ -154,9 +166,6 @@ static bool          stateReqPending = false;
 static char          stateReqM_ID[MODULE_ID_LEN + 1] = {0};
 static unsigned long stateReqSentAt = 0;
 static uint8_t       stateReqRetries = 0;
-
-bool lora_command_pending() { return cmdPending; }
-bool lora_state_request_pending() { return stateReqPending; }
 
 // ---------------- Публикуване на командeн статус ----------------
 static void publishCommandStatus(const CommandPacket& p, uint8_t status) {
@@ -378,9 +387,9 @@ void lora_handle_incoming(int packetSize) {
   float snr = LoRa.packetSnr();
   uint32_t ts = (uint32_t)(millis() / 1000);
 
-  // Приемат се само 30-байтови сензорни пакети (директни или препратени от Repeater - без маркер).
+  // Приемат се само 22-байтови сензорни пакети (директни или препратени от Repeater - без маркер).
   if (len == SENSOR_WIRE_LEN) {
-    if (gwDedupSeen(buf)) {
+    if (gwDedupSeen(buf, (uint8_t)len)) {
       Serial.println("  -> дублиран sensor пакет (вече видян), игнориран");
       return;
     }
@@ -388,25 +397,26 @@ void lora_handle_incoming(int packetSize) {
     uint8_t senderId[CRYPTO_ID_LEN];
     uint8_t plaintext[SENSOR_PT_LEN];
     uint8_t ptLen;
-    if (!cryptoParseWirePacket(buf, SENSOR_WIRE_LEN, NETWORK_KEY, CRYPTO_TYPE_SENSOR,
+    if (!cryptoParseWirePacket(buf, (uint8_t)len, NETWORK_KEY, CRYPTO_TYPE_SENSOR,
                                 senderId, plaintext, &ptLen)) {
       Serial.println("  -> sensor пакет: невалиден MAC, отхвърлен");
       return;
     }
-    gwDedupAdd(buf);
+    gwDedupAdd(buf, (uint8_t)len);
 
-    float s_t, s_h, a_t, a_h;
-    memcpy(&s_t, plaintext + 0, 4);
-    memcpy(&s_h, plaintext + 4, 4);
-    memcpy(&a_t, plaintext + 8, 4);
-    memcpy(&a_h, plaintext + 12, 4);
+    // Декомпресия: int16 little-endian / 100. SENSOR_RAW_NODATA (-32768) -> публикува се като -32768 ("няма данни", без деление на 100).
+    float v[4];
+    for (uint8_t i = 0; i < 4; i++) {
+      int16_t raw = (int16_t)((uint16_t)plaintext[2 * i] | ((uint16_t)plaintext[2 * i + 1] << 8));
+      v[i] = (raw == SENSOR_RAW_NODATA) ? SENSOR_NODATA_VALUE : raw / 100.0f;
+    }
 
     char id[CRYPTO_ID_LEN + 1] = {0};
     memcpy(id, senderId, CRYPTO_ID_LEN);
 
     StaticJsonDocument<256> doc;
-    doc["id"] = id; doc["soil_t"] = s_t; doc["soil_h"] = s_h;
-    doc["air_t"] = a_t; doc["air_h"] = a_h;
+    doc["id"] = id; doc["soil_t"] = v[0]; doc["soil_h"] = v[1];
+    doc["air_t"] = v[2]; doc["air_h"] = v[3];
     doc["rssi"] = rssi; doc["snr"] = snr; doc["ts"] = ts;
 
     publishJson(TOPIC_SENSORS, doc);

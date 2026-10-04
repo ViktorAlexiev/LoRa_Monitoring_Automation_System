@@ -366,6 +366,84 @@ Time-on-Air по Semtech AN1200.13 в целочислена аритметик�
 механизъм, разминава момента на CAD проверка между два Repeater-а на едно ниво, не общия jitter
 преди TX.
 
+## 20. Компактен sensor пакет (22 B) — единствен формат; код „няма данни“ -32768; dedup буфер с размера на най-големия пакет
+
+**Статус:** приложено в `firmware_src/LoRa_radio_node+TTGO` (`sensor/radio_tx.cpp|h`,
+`gateway/lora_handlers.cpp`). НЕ е компилирано в тази среда (липсват библиотеките Crypto/AES_CMAC
+за arduino-cli) — логиката на кодека е проверена с отделен native тест.
+
+**Sensor:** plaintext е 4 × `int16` little-endian (`S_T, S_H, A_T, A_H`), стойност = закръглено
+`x * 100` (0.01 °C / 0.01 %RH = точността на SHT31/SHT21) вместо 4 × `float32`. Plaintext 8 B →
+wire пакет **22 B** (преди 30 B), airtime −9…−21% според SF. Старият 30-байтов формат вече не
+съществува: sensor-ите пращат само 22 B, gateway-ят приема само 22 B.
+
+**Код „няма данни“:** едно-единствено число **`-32768`** (`SENSOR_RAW_NODATA`) — и по радиото, и в
+MQTT JSON към бекенда (gateway го публикува непроменено, без деление на 100, за всяко от
+четирите полета). Не се различава причината (грешка при четене / няма монтиран сензор).
+Замества стария маркер `255.0`. Бекендът трябва да разпознава `-32768` вместо `255.0` — виж
+`web_dashboard` (`zone_stats.py`, `health_checker.py`, `mqtt_bridge.py`, `fake_field.py`,
+`frontend/src/pages/ZoneDetail.jsx`); тази промяна е извън firmware-а.
+
+**Dedup буфер на gateway:** записът е с размера на най-големия пакет в системата
+(`GW_DEDUP_MAX_LEN = CRYPTO_OVERHEAD + CRYPTO_MAX_PT = 64 B`), пази реалната дължина на всеки
+запис и сравнява дължината заедно със съдържанието (преди беше фиксиран на 30 B).
+
+**Repeater:** не е променян — препраща пакета непроменен; `DEDUP_MAX_LEN = 32` покрива 22 B.
+`radioTelemetryWaitMs()` продължава да смята `toa(30 B)` — консервативно (по-голямо от реалните
+22 B), оставено без промяна.
+
+**Документация:** `Firmware_Documentation.docx` (секция 5, пакетите) още описва 30-байтовия
+формат и маркера 255.0 — да се обнови.
+
+
+## 21. ESP32 PCB: нова папка `firmware_src/ESP32_PCB(temp_hum)`, избор на платка в приложението, `executor_wifi`
+
+**Статус:** приложено. Компилирани за ESP32 (arduino-cli, `esp32:esp32:esp32`, core 1.0.6): `config_esp32`,
+`executor_wifi`, `sensor`, `executor`, `repeater`, `gateway` — последните четири с тестови подмени на
+крипто библиотеките (Crypto/AES_CMAC липсват в тази среда), т.е. проверен е синтаксисът и структурата,
+не реалното крипто. НЕ е пробвано на хардуер.
+
+**Firmware (`firmware_src/ESP32_PCB(temp_hum)`):** същата логика и протокол като `LoRa_radio_node+TTGO` (SX127x с
+библиотеката `LoRa`, AES-128-CTR + CMAC, 22-байтов sensor пакет, `-32768` = няма данни), но:
+- конфигурацията е в **NVS** (Preferences, namespace `cfg`), не в EEPROM; ключове: `id, freq, freqtx, sf, bw,
+  key, nc, c<i>i, c<i>p, wssid, wpass, mqip, mqport, mquser, mqpass, ceil`;
+- `ceiling_counter` пише watermark-а в NVS; при събуждане от дълбок сън (sensor) състоянието се пази в RTC
+  паметта, за да не се пише във flash на всяко събуждане;
+- **sensor:** `esp_deep_sleep` с RTC таймер (113 x 8 s ≈ 15 мин), после рестарт от `setup()`;
+- **executor / repeater:** лек сън (`esp_light_sleep`) със събуждане от DIO0 на радиото (входящ пакет) или на
+  всеки 8 s тик (HB разписание); тиковете се броят по системния часовник (`powerTicksPoll`), за да не
+  гладуват при чести събуждания;
+- пиновете са в `board_pins.h` (във всяка папка) — **временни, взети от TTGO LoRa32 V1**, да се попълнят;
+- **gateway:** както TTGO gateway-я (вече е ESP32/NVS), само с пиновете от `board_pins.h`;
+- **config_esp32:** един stage-1 за всички ESP32 устройства; приема `id, freq, freq_tx, sf, bw, key,
+  consumers (pin = GPIO номер), net=1 + wifi/mqtt`.
+
+**`executor_wifi` (нов):** изпълнителен модул без LoRa, който приема команди директно по MQTT. Единствената
+нова тема е `wifi_commands` (QoS 1, без retain, clean session): команда `{"M_ID","C_ID","com":"A1|B2"}` и
+заявка за състояние `{"M_ID","com":"C3"}`; всички Wi-Fi модули са абонирани и филтрират по `M_ID`. Отговорите
+са в сегашните теми със същия JSON: `commands_status` (status 0/2), `module_states_response` (след boot с
+`"restart":true`), `heartbeat` (на 30 s). Last Will (retained) в `executors/<M_ID>/lwt`. Опашката на
+командите е в бекенда — следващата тръгва след отговора на предишната; TIMEOUT за Wi-Fi модулите го отбелязва
+бекендът (няма gateway). PubSubClient не поддържа публикуване с QoS 1 — отговорите са QoS 0 (по TCP).
+Failsafe (изключване при загуба на връзка) — още не е добавен.
+
+**Firmware Uploader:** избор на платка най-горе (ATmega LoRa radio node / ESP32 PCB, пази се в
+`config.ini [platform]`). ESP32 PCB качва firmware от `firmware/esp32_pcb/` (config на 0x0, реалният на
+0x10000, NVS не се пипа). В таб Executor при ESP32 PCB има „Приема команди през: LoRa | Wi-Fi/MQTT“ (Wi-Fi
+качва `executor_wifi` и иска SSID/парола/MQTT host/порт/потребител/парола). Пиновете за ESP32 са GPIO 0-39
+(без `A3`), със собствен списък резервирани пинове в Settings (`pins_esp32`). В Registry параметрите носят
+`platform` и `cmd_via`.
+
+**`build_firmware.py` / `config.ini`:** два набора — `[build_targets]` (папка `firmware_src_dir` =
+`firmware_src/LoRa_radio_node+TTGO`, преди сочеше към вече несъществуващия `firmware_src`) и
+`[build_targets_esp32_pcb]` (`firmware_src_dir_esp32_pcb`, `esp32_pcb_fqbn` — засега generic `esp32:esp32:esp32`,
+да се смени с FQBN на платката). `python build_firmware.py [avr|esp32_pcb|all]`. Изходът на ESP32 PCB е в
+`firmware/esp32_pcb/`.
+
+**За бекенда (отделно):** `transport` (`lora`|`wifi`) на изпълнителния модул; `reconciler.py` пуска командите
+за `wifi` в `wifi_commands`, за `lora` в `commands`; TIMEOUT за Wi-Fi; `health_checker.py` без радио проверки
+за Wi-Fi модулите.
+
 ## Тестове и проверки (по този етап)
 
 `firmware_uploader/tests/`: native C++ (`run_all.sh`) — crypto, ceiling, queues, consumers,

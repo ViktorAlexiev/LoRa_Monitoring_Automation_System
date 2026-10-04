@@ -8,12 +8,13 @@
 #include "radio_timing.h"
 
 void lora_init() {
-  // времената (CAD, изчакване) се извеждат от SF/BW, прочетени от EEPROM
+  // времената (CAD, изчакване) се извеждат от SF/BW, прочетени от NVS
   radioTimingInit(LORA_SF, LORA_BW_HZ, LORA_CR_DENOM, LORA_PREAMBLE_LEN, true);
 
+  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
   LoRa.setPins(LORA_NSS, LORA_RST, LORA_DIO0);
 
-  // честотата вече идва от EEPROM (config пакет), не hardcoded. Ако модулът не отговори,
+  // честотата вече идва от NVS (config пакет), не hardcoded. Ако модулът не отговори,
   // остава в цикъл с периодично Serial съобщение (сериен дебъг на терен), вместо да
   // продължи напред все едно всичко е наред (LoRa.begin() резултатът се проверява).
   unsigned long lastMsg = 0;
@@ -30,29 +31,43 @@ void lora_init() {
   LoRa.enableCrc();
 }
 
-// Тия 4 float-а са plaintext-ът, който се криптира - S_ID НЕ е част от него, пътува
-// в чисто (wire формат) като sender identity, нужна е на gateway-я преди decrypt.
+// Компактен формат: 4 x int16 (little-endian, native на AVR) са plaintext-ът, който се
+// криптира - S_ID НЕ е част от него, пътува в чисто (wire формат) като sender identity,
+// нужна е на gateway-я преди decrypt. Стойността е закръглено x * 100 (0.01 °C / 0.01 %RH,
+// колкото е точността на SHT31/SHT21). Plaintext 8 B -> wire пакет 22 B (вместо 30 B с float32).
+// Единственият код за "няма данни" (грешка при четене или липсващ сензор - причината не се
+// предава). Gateway го публикува към бекенда като -404.
+#define SENSOR_RAW_NODATA  (-32768)
 struct __attribute__((packed)) myPacketData {
-  float S_T;
-  float S_H;
-  float A_T;
-  float A_H;
+  int16_t S_T;
+  int16_t S_H;
+  int16_t A_T;
+  int16_t A_H;
 };
+
+// float -> int16 x100. 255.0f е маркерът за грешка от sensors_io -> SENSOR_RAW_NODATA.
+// Реалните стойности са в -40..100 (SHT), т.е. -4000..10000 - далеч от границите на int16.
+static int16_t encodeCompact(float v) {
+  if (v >= 254.5f) return SENSOR_RAW_NODATA;
+  return (int16_t)(v * 100.0f + (v >= 0.0f ? 0.5f : -0.5f));
+}
 
 void send_sensor_packet(float s_t, float s_h, float a_t, float a_h) {
   myPacketData pkt;
-  pkt.S_T = s_t;
-  pkt.S_H = s_h;
-  pkt.A_T = a_t;
-  pkt.A_H = a_h;
+  pkt.S_T = encodeCompact(s_t);
+  pkt.S_H = encodeCompact(s_h);
+  pkt.A_T = encodeCompact(a_t);
+  pkt.A_H = encodeCompact(a_h);
 
   delay(random(0, JITTER_MAX_MS));   // jitter - разминава TX-а с други sensor-и на честотата
 
   Serial.print(F("TX S_ID=")); Serial.print(SENSOR_ID);
-  Serial.print(F(" S_T=")); Serial.print(pkt.S_T);
-  Serial.print(F(" S_H=")); Serial.print(pkt.S_H);
-  Serial.print(F(" A_T=")); Serial.print(pkt.A_T);
-  Serial.print(F(" A_H=")); Serial.println(pkt.A_H);
+  Serial.print(F(" S_T=")); Serial.print(s_t);
+  Serial.print(F(" S_H=")); Serial.print(s_h);
+  Serial.print(F(" A_T=")); Serial.print(a_t);
+  Serial.print(F(" A_H=")); Serial.print(a_h);
+  Serial.print(F(" (wire ")); Serial.print((int)(CRYPTO_OVERHEAD + sizeof(myPacketData)));
+  Serial.println(F(" B)"));
   Serial.flush();
 
   uint8_t wireBuf[CRYPTO_OVERHEAD + sizeof(myPacketData)];

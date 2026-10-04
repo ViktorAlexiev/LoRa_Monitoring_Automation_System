@@ -349,5 +349,39 @@ class TestLanes(unittest.TestCase):
         self.assertIn("Лента 1", msg)
 
 
+class TestPinEsp32(unittest.TestCase):
+    """ESP32 PCB: пиновете са GPIO номера 0..39, без аналогови имена (A3)."""
+
+    def test_gpio_number_ok(self):
+        for pin in ("0", "5", "25", "39"):
+            ok, msg = v.validate_pin(pin, esp32=True)
+            self.assertTrue(ok, f"{pin}: {msg}")
+
+    def test_above_39_rejected(self):
+        ok, msg = v.validate_pin("40", esp32=True)
+        self.assertFalse(ok)
+        ok, msg = v.validate_pin("99", esp32=True)
+        self.assertFalse(ok)
+
+    def test_letter_pin_rejected_on_esp32(self):
+        ok, msg = v.validate_pin("A3", esp32=True)
+        self.assertFalse(ok)
+        # на ATmega остава валиден
+        self.assertTrue(v.validate_pin("A3")[0])
+
+    def test_reserved_pin_rejected_on_esp32(self):
+        ok, msg = v.validate_pin("18", reserved_pins={"18"}, esp32=True)
+        self.assertFalse(ok)
+
+    def test_consumers_list_esp32(self):
+        cons = [{"id": "V01", "pin": "25"}, {"id": "P01", "pin": "26"}]
+        row_errors, general = v.validate_consumers_detailed(cons, esp32=True)
+        self.assertEqual(row_errors, {})
+        self.assertEqual(general, [])
+        bad = [{"id": "V01", "pin": "A3"}]
+        row_errors, general = v.validate_consumers_detailed(bad, esp32=True)
+        self.assertIn(0, row_errors)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
