@@ -16,11 +16,11 @@ Subscribes to two topics:
   default (this bridge's own receipt time) instead of trusting "ts". This is
   the one simple timestamp a reading needs; nothing else in the payload is
   time-related and worth keeping.
-  A value of 255.0 in any reading field means "this sensor didn't return a
+  A value of -32768 in any reading field means "this sensor didn't return a
   valid reading this cycle" (manual 2.1) - it is stored AS-IS, unconverted,
   because that's the literal marker health_checker.py's SENSOR_FAULT_255
   check (zone_errors_catalog.docx) looks for. Anything that averages
-  readings (e.g. the dashboard's per-zone summary) needs to filter 255 out
+  readings (e.g. the dashboard's per-zone summary) needs to filter -32768 out
   itself - this bridge's job is only to record what was actually sent.
   rssi/snr (radio signal quality), when present, are read only to help tell
   a sensor reading's origin apart from other traffic - their values aren't

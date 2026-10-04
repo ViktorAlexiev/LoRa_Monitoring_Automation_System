@@ -173,6 +173,12 @@ if "last_rssi" in _existing_repeater_cols or "last_snr" in _existing_repeater_co
         conn.execute(text("DROP TABLE repeaters"))
         conn.execute(text("ALTER TABLE repeaters_new RENAME TO repeaters"))
 
+# executors.transport: "lora" (via the Gateway) or "wifi" (direct MQTT).
+_existing_executor_cols = {c["name"] for c in inspect(engine).get_columns("executors")}
+if "transport" not in _existing_executor_cols:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE executors ADD COLUMN transport VARCHAR(8) NOT NULL DEFAULT 'lora'"))
+
 _existing_user_cols = {c["name"] for c in inspect(engine).get_columns("users")}
 if "is_system" not in _existing_user_cols:
     with engine.begin() as conn:

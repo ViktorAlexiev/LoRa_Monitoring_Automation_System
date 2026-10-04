@@ -144,17 +144,20 @@ class ZoneSummary(ZoneOut):
 class ExecutorCreate(BaseModel):
     id: DeviceId
     name: str = ""
+    transport: Literal["lora", "wifi"] = "lora"
 
 
 class ExecutorUpdate(BaseModel):
     name: Optional[str] = None
     is_active: Optional[bool] = None
+    transport: Optional[Literal["lora", "wifi"]] = None
 
 
 class ExecutorOut(ORMModel):
     id: str
     name: str
     is_active: bool
+    transport: Literal["lora", "wifi"] = "lora"
     last_heartbeat_at: Optional[datetime.datetime] = None
 
 
@@ -294,8 +297,8 @@ class ValveCommandCreate(BaseModel):
 
 class SensorLayoutItem(BaseModel):
     sensor_id: str
-    x: float = Field(ge=0, le=100)
-    y: float = Field(ge=0, le=100)
+    x: float = Field(ge=-300, le=400)
+    y: float = Field(ge=-300, le=400)
 
 
 class SensorLayoutSet(BaseModel):
@@ -306,10 +309,10 @@ class MapObjectItem(BaseModel):
     kind: str = Field(max_length=16)
     label: str = Field(default="", max_length=64)
     color: str = Field(default="", max_length=16)
-    x: float = Field(ge=0, le=100)
-    y: float = Field(ge=0, le=100)
-    w: float = Field(ge=2, le=100)
-    h: float = Field(ge=2, le=100)
+    x: float = Field(ge=-300, le=400)
+    y: float = Field(ge=-300, le=400)
+    w: float = Field(ge=2, le=400)
+    h: float = Field(ge=2, le=400)
 
 
 class MapObjectsSet(BaseModel):
@@ -318,10 +321,10 @@ class MapObjectsSet(BaseModel):
 
 class SiteZoneItem(BaseModel):
     zone_id: int
-    x: float = Field(ge=0, le=100)
-    y: float = Field(ge=0, le=100)
-    w: float = Field(ge=3, le=100)
-    h: float = Field(ge=3, le=100)
+    x: float = Field(ge=-300, le=400)
+    y: float = Field(ge=-300, le=400)
+    w: float = Field(ge=3, le=400)
+    h: float = Field(ge=3, le=400)
 
 
 class SiteMapOut(BaseModel):

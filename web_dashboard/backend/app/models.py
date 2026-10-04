@@ -70,6 +70,9 @@ class Executor(Base):
     name = Column(String(255), default="")
     is_active = Column(Boolean, default=True)
     last_heartbeat_at = Column(DateTime, nullable=True)
+    # How this module is reached: "lora" (through the Gateway, topic
+    # "commands") or "wifi" (straight over MQTT, topic "wifi_commands").
+    transport = Column(String(8), default="lora", nullable=False, server_default="lora")
 
     valves = relationship("Valve", back_populates="executor")
     pumps = relationship("Pump", back_populates="executor")
@@ -402,6 +405,18 @@ class PumpCommand(Base):
     created_at = Column(DateTime, default=now)
     acked_at = Column(DateTime, nullable=True)  # see ValveCommand.acked_at
     resolved_at = Column(DateTime, nullable=True)
+
+
+class StateRefreshRequest(Base):
+    """"Обнови състоянието" button: the web API never talks MQTT itself, so it
+    leaves one of these per executor and reconciler.py (the only daemon that
+    owns module_states_requests) picks it up on its next tick."""
+    __tablename__ = "state_refresh_requests"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    executor_id = Column(String(6), nullable=False, index=True)
+    requested_at = Column(DateTime, default=now)
+    sent_at = Column(DateTime, nullable=True)
 
 
 class ZoneEvent(Base):

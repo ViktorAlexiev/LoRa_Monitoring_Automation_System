@@ -137,6 +137,7 @@ def _start_force_off(zone: models.Zone):
     unreachable (found via live bench testing)."""
     for valve in zone.valves:
         valve.desired_state = "off"
+        valve.last_command_failed = False  # a person asked: try now, no automatic back-off
         valve.manual_override = False
         valve.override_phase = None
 
@@ -222,6 +223,32 @@ def emergency_stop(zone_id: int, db: Session = Depends(get_db), user: models.Use
     return {"ok": True, "zones": 1}
 
 
+@router.post("/{zone_id}/refresh-state")
+def refresh_state(zone_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """"Обнови състоянието": ask every executor behind this zone's valves/pumps
+    to report what its consumers' real states are right now. The API doesn't
+    talk MQTT - it leaves a StateRefreshRequest per executor and
+    daemons/reconciler.py sends the actual module_states_requests."""
+    zone = db.get(models.Zone, zone_id)
+    if not zone:
+        raise HTTPException(404, "Not found")
+    require_zone_control(db, user, zone_id)
+    executor_ids = set()
+    for valve in zone.valves:
+        if valve.executor_id:
+            executor_ids.add(valve.executor_id)
+        if valve.pump is not None and valve.pump.executor_id:
+            executor_ids.add(valve.pump.executor_id)
+    queued = 0
+    for eid in sorted(executor_ids):
+        already = db.query(models.StateRefreshRequest).filter_by(executor_id=eid, sent_at=None).first()
+        if already is None:
+            db.add(models.StateRefreshRequest(executor_id=eid))
+            queued += 1
+    db.commit()
+    return {"ok": True, "modules": len(executor_ids), "queued": queued}
+
+
 @router.patch("/{zone_id}", response_model=schemas.ZoneOut)
 def update_zone(zone_id: int, payload: schemas.ZoneUpdate, db: Session = Depends(get_db),
                  user: models.User = Depends(get_current_user)):
@@ -232,8 +259,13 @@ def update_zone(zone_id: int, payload: schemas.ZoneUpdate, db: Session = Depends
     _require_no_transition(zone)
 
     activating = payload.is_active is True and not zone.is_active
+    # A regime change must also stop consumers that are running while the zone
+    # is switched off (e.g. valves turned on by hand): the new regime must not
+    # inherit them silently.
+    consumers_running = any(v.current_state == "on" or v.desired_state == "on" for v in zone.valves)
     changing_regime_while_active = (
-        payload.regime is not None and payload.regime != zone.regime and zone.is_active
+        payload.regime is not None and payload.regime != zone.regime
+        and (zone.is_active or consumers_running)
     )
     deactivating = payload.is_active is False and zone.is_active
 

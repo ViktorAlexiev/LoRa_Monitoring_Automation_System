@@ -38,7 +38,7 @@ never longer.
 
 Zone average: every decision below (threshold rules, the overwatering
 guard) reads the zone's average through app/zone_stats.py's zone_average -
-the very same number the dashboard shows (windowed average, 255 markers and
+the very same number the dashboard shows (windowed average, -32768 markers and
 outliers excluded), not a separate calculation.
 
 Soil-moisture safety net (threshold regime only): see _tick_threshold_zones -

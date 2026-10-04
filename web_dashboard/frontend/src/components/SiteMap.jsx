@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { MAP_KINDS, objectLabel } from "../utils/mapObjects.js";
+import PanZoom, { mapBounds } from "./PanZoom.jsx";
 
 // Status of a zone box on the whole-site map, from the dashboard's zone list.
 export function zoneTone(z) {
@@ -15,8 +16,9 @@ export default function SiteMap({ zones, map, showLocked = true }) {
   const byId = Object.fromEntries(zones.map((z) => [z.id, z]));
   const placed = map.zones.filter((p) => byId[p.zone_id] && (showLocked || byId[p.zone_id].accessible));
   return (
-    <div className="site-map-scroll">
-      <div className="site-map site-map-whole">
+    <PanZoom className="site-map-whole" bounds={mapBounds([...map.objects, ...placed])}>
+      {() => (
+        <>
         {map.objects.map((o, i) => (
           <div key={i} className={`map-obj obj-${o.kind} ${o.color ? `col-${o.color}` : ""}`}
                style={{ left: `${o.x}%`, top: `${o.y}%`, width: `${o.w}%`, height: `${o.h}%` }}>
@@ -46,7 +48,8 @@ export default function SiteMap({ zones, map, showLocked = true }) {
           );
         })}
         {placed.length === 0 && <div className="site-map-empty">Картата на обекта още не е подредена — админът я подрежда от „Зони“.</div>}
-      </div>
-    </div>
+        </>
+      )}
+    </PanZoom>
   );
 }

@@ -24,7 +24,7 @@ const TABS = [
   { key: "history", label: "История" },
 ];
 
-const SENSOR_FAULT_VALUE = 255.0; // manual 2.1: "invalid this cycle" marker - never a real value, excluded everywhere
+const SENSOR_FAULT_VALUE = -32768.0; // manual 2.1: "invalid this cycle" marker - never a real value, excluded everywhere
 
 // Arithmetic mean, but a value that's a leave-one-out outlier against the
 // rest of the group is excluded first - same test as the backend's
@@ -115,6 +115,8 @@ export default function ZoneDetail() {
   const [regimeNote, setRegimeNote] = useState(null); // refusal shown under the mode select
   const [confirmStop, setConfirmStop] = useState(false);
   const [stopError, setStopError] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshNote, setRefreshNote] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [refreshSeconds, setRefreshSeconds] = useState(20);
 
@@ -201,6 +203,23 @@ export default function ZoneDetail() {
     }
   }
 
+  // "Обнови състоянието": the backend asks the modules what their valves and
+  // pumps really are right now; the answers land within seconds (Wi-Fi) up to
+  // ~half a minute (LoRa, one module at a time), so reload a few times.
+  async function doRefreshState() {
+    setRefreshing(true);
+    setRefreshNote(null);
+    try {
+      const r = await api.zones.refreshState(zoneId);
+      if (!r.modules) setRefreshNote("В тази зона няма свързани модули, които да питаме.");
+      for (const ms of [3000, 8000, 16000, 30000]) setTimeout(loadAll, ms);
+      setTimeout(() => setRefreshing(false), r.modules ? 8000 : 500);
+    } catch (err) {
+      setRefreshNote(err.message);
+      setRefreshing(false);
+    }
+  }
+
   async function doContinueTransition() {
     await api.zones.continueTransition(zoneId);
     loadAll();
@@ -214,7 +233,9 @@ export default function ZoneDetail() {
   function requestRegimeChange(newRegime) {
     if (newRegime === zone.regime) return;
     setRegimeNote(null);
-    if (zone.is_active) {
+    const consumersRunning = valves.some((v) => v.current_state === "on" || v.desired_state === "on")
+      || zonePumps.some((p) => p.current_state === "on");
+    if (zone.is_active || consumersRunning) {
       setConfirmRegime(newRegime);
       setRegimeError(null);
     } else {
@@ -420,7 +441,14 @@ export default function ZoneDetail() {
             </select>
             {regimeNote && <div className="error-note">{regimeNote}</div>}
           </div>
-          <button className="btn btn-sm" onClick={() => setSettingsOpen(true)}>Настройки на управлението</button>
+          <div className="row-actions">
+            <button className="btn btn-sm" onClick={() => setSettingsOpen(true)}>Настройки на управлението</button>
+            <button className="btn btn-sm" disabled={refreshing} onClick={doRefreshState}
+              title="Пита модулите какво е реалното състояние на клапаните и помпите">
+              {refreshing ? "Питам модулите…" : "Обнови състоянието"}
+            </button>
+          </div>
+          {refreshNote && <div className="error-note">{refreshNote}</div>}
 
           <div className="section-title">Клапани</div>
           <div className="tile-grid">
@@ -514,8 +542,8 @@ export default function ZoneDetail() {
 
       {confirmRegime && (
         <ConfirmDialog
-          title="Смяна на режим на активна зона"
-          message={`Зоната е активна — всички нейни клапани и помпи ще бъдат изведени в изключено състояние, преди да премине на режим „${MODE_LABEL[confirmRegime]}“.`}
+          title="Смяна на режим"
+          message={`Всички клапани и помпи на зоната ще бъдат изведени в изключено състояние, преди да премине на режим „${MODE_LABEL[confirmRegime]}“.`}
           confirmLabel="Смени режима"
           error={regimeError}
           onConfirm={doConfirmRegimeChange}

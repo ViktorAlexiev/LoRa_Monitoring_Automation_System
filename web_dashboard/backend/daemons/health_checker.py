@@ -139,7 +139,7 @@ TICK_SECONDS = 30
 CLEANUP_INTERVAL_SECONDS = 24 * 3600  # how often _cleanup_old_sensor_readings actually runs its DELETE
 
 
-SENSOR_FAULT_VALUE = 255.0  # manual 2.1: "this cycle's reading is invalid" marker - never a real value
+SENSOR_FAULT_VALUE = -32768.0  # manual 2.1: "this cycle's reading is invalid" marker - never a real value
 
 # Physically possible bounds per field - hardware limits, not a tunable
 # business preference, so these stay as code constants rather than
@@ -183,6 +183,7 @@ def _open_or_refresh(db, error_code, severity, description, zone_id=None, sensor
     # own resolve query (using the sensor's CURRENT zone_id) would never
     # find it again, so it stayed open with a stale description even after
     # the sensor started reporting fine (found via live bench testing).
+    description = description if len(description) <= 255 else description[:252] + "..."  # column is VARCHAR(255)
     existing = (
         db.query(models.ZoneError)
         .filter_by(error_code=error_code, resolved_at=None, sensor_id=sensor_id,
@@ -220,6 +221,29 @@ def _nm(kind, obj):
     the device id in brackets (just the id when the name is empty)."""
     name = (getattr(obj, "name", "") or "").strip()
     return f"{kind} „{name}“ ({obj.id})" if name else f"{kind} {obj.id}"
+
+
+REGIME_LABEL = {"manual": "ръчен", "clock": "по време", "threshold": "по прагове"}
+
+
+def _failed_command_context(db, model, id_field, obj, zones):
+    """What was being done and in which regime, e.g. ' за изключване (зоната е
+    в режим „по прагове“)', so the reader can tell a failed AUTOMATIC action (the
+    schedule / thresholds wanted it, e.g. to switch something OFF and it stayed
+    on because the module is offline) from a manual button press. Second item:
+    the 'will retry' note, only for an automatic regime."""
+    last = (
+        db.query(model).filter(getattr(model, id_field) == obj.id, model.status.in_(("timeout", "nack")))
+        .order_by(model.id.desc()).first()
+    )
+    action = {"on": "включване", "off": "изключване"}.get(last.requested_state) if last else None
+    real = [z for z in zones if z is not None]
+    regimes = sorted({REGIME_LABEL.get(z.regime, z.regime) for z in real})
+    text = f" за {action}" if action else ""
+    if regimes:
+        text += (" (зоната е в режим " if len(regimes) == 1 else " (зоните са в режими ") + ", ".join(f"„{r}“" for r in regimes) + ")"
+    auto = " Автоматичният режим ще опита пак по-късно." if any(z.regime != "manual" for z in real) else ""
+    return text, auto
 
 
 PARAM_LABEL = {"S_H": "влажност на почвата", "S_T": "температура на почвата",
@@ -286,7 +310,7 @@ def _check_sensor_offline(db, now):
 def _check_sensor_fault_255(db):
     """zone_errors_catalog.docx: SENSOR_FAULT_255 (error) - a reading row
     contains the "invalid this cycle" marker in one of its fields. Checked
-    against the sensor's LATEST reading only - an old 255 that's since been
+    against the sensor's LATEST reading only - an old -32768 that's since been
     superseded by a real value shouldn't keep the error open."""
     fields = {"soil_t": "почвена температура", "soil_h": "почвена влажност",
               "air_t": "въздушна температура", "air_h": "въздушна влажност"}
@@ -331,10 +355,11 @@ def _check_command_failures(db):
     eventually succeeded), the old failure is no longer real."""
     for valve in db.query(models.Valve).all():
         if valve.last_command_failed:
+            ctx = _failed_command_context(db, models.ValveCommand, "valve_id", valve, [valve.zone])
             _open_or_refresh(
                 db, "VALVE_COMMAND_TIMEOUT", "critical",
-                f"{_nm('Клапан', valve)} не изпълни командата — устройството не отговори. "
-                f"Проверете дали е включено и има връзка, после опитайте пак.",
+                f"{_nm('Клапан', valve)} не изпълни командата{ctx[0]} — устройството не отговори.{ctx[1]} "
+                f"Проверете дали е включено и има връзка.",
                 zone_id=valve.zone_id, valve_id=valve.id,
             )
         else:
@@ -344,10 +369,11 @@ def _check_command_failures(db):
 
     for pump in db.query(models.Pump).all():
         if pump.last_command_failed:
+            ctx = _failed_command_context(db, models.PumpCommand, "pump_id", pump, [v.zone for v in pump.valves])
             _open_or_refresh(
                 db, "PUMP_COMMAND_TIMEOUT", "critical",
-                f"{_nm('Помпа', pump)} не изпълни командата — устройството не отговори. "
-                f"Проверете дали е включена и има връзка, после опитайте пак.",
+                f"{_nm('Помпа', pump)} не изпълни командата{ctx[0]} — устройството не отговори.{ctx[1]} "
+                f"Проверете дали е включена и има връзка.",
                 pump_id=pump.id,
             )
         else:
@@ -373,7 +399,13 @@ def _check_device_offline(db, now):
     multiple repeaters, say, don't collide into one shared error row.
     Gateway has no such column - there is architecturally only ever one (see
     Документация на системата.docx: "централният мост"), so a single
-    id-less GATEWAY_OFFLINE row is the correct model, not a bug."""
+    id-less GATEWAY_OFFLINE row is the correct model, not a bug.
+
+    Wi-Fi modules (Executor.transport == "wifi") talk to the broker directly,
+    with no radio and no Gateway in the path: none of the LoRa-side checks
+    (gateway, repeaters, radio signal) says anything about them, so they are
+    NOT blamed on the Gateway and their only reachability signal is their own
+    heartbeat - this loop, with Wi-Fi wording in the message."""
     limit_minutes = CONFIG["health_checks"]["device_offline_minutes"]
     cutoff = now - datetime.timedelta(minutes=limit_minutes)
 
@@ -390,10 +422,12 @@ def _check_device_offline(db, now):
                 age = "Още не се е обаждал" if last is None else f"Последно обаждане: {last.strftime('%d.%m в %H:%M')}"
                 name = (device.name or "").strip()
                 who = f"{label} „{name}“ ({device.id})" if name else f"{label} {device.id}"
+                hint = ("Проверете захранването и Wi-Fi връзката (дали рутерът е включен и модулът е в обхват)."
+                        if getattr(device, "transport", "lora") == "wifi"
+                        else "Проверете захранването и връзката.")
                 _open_or_refresh(
                     db, error_code, "critical",
-                    f"{who} не отговаря от повече от {limit_minutes} мин. {age}. "
-                    f"Проверете захранването и връзката.",
+                    f"{who} не отговаря от повече от {limit_minutes} мин. {age}. {hint}",
                     **kwargs,
                 )
             else:

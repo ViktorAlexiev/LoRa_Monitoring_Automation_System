@@ -44,7 +44,7 @@ def list_executors(db: Session = Depends(get_db)):
 def create_executor(payload: schemas.ExecutorCreate, db: Session = Depends(get_db)):
     if db.get(models.Executor, payload.id):
         raise HTTPException(409, f"Executor {payload.id} already exists")
-    obj = models.Executor(id=payload.id, name=payload.name)
+    obj = models.Executor(id=payload.id, name=payload.name, transport=payload.transport)
     db.add(obj)
     db.commit()
     db.refresh(obj)
@@ -419,6 +419,7 @@ def send_valve_command(valve_id: str, payload: schemas.ValveCommandCreate, db: S
     # If reconciler.py isn't running (e.g. plain local dev with no daemons),
     # this simply never converges - which is honest: nothing configured
     # this executor for real, so nothing should claim it did.
+    obj.last_command_failed = False  # a person asked: try now, no automatic back-off
     obj.desired_state = payload.requested_state
     audit.log(db, user, "valve_command",
               f"Клапан „{obj.name or obj.id}“ ({obj.id}) — {'включване' if payload.requested_state == 'on' else 'изключване'}",
@@ -521,6 +522,7 @@ def send_pump_command(pump_id: str, payload: schemas.ValveCommandCreate, db: Ses
             f"Помпа {obj.id} няма нито един физически отворен клапан в момента — включването ѝ без "
             "поне един отворен клапан е забранено (риск от работа на сухо). Отвори клапан от тая помпа първо.",
         )
+    obj.last_command_failed = False  # a person asked: try now, no automatic back-off
     obj.desired_state = payload.requested_state
     zoned = next((v for v in obj.valves if v.zone_id), None)
     audit.log(db, user, "pump_command",

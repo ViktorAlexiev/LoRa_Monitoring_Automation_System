@@ -64,6 +64,7 @@ export const api = {
     saveLayout: (id, items) => request(`/zones/${id}/layout`, { method: "PUT", body: JSON.stringify({ items }) }),
     errors: (id) => request(`/zones/${id}/errors`),
     emergencyStop: (id) => request(`/zones/${id}/emergency-stop`, { method: "POST" }),
+    refreshState: (id) => request(`/zones/${id}/refresh-state`, { method: "POST" }),
     continueTransition: (id) => request(`/zones/${id}/transition/continue`, { method: "POST" }),
     deactivateFromTransition: (id) => request(`/zones/${id}/transition/deactivate`, { method: "POST" }),
   },

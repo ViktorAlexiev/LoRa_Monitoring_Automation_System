@@ -207,7 +207,7 @@ export default function PhysicalModules() {
         if (tab === "sensors") {
           await api.sensors.update(editingId, { name: form.name || "", repeater_id: form.repeater_id || null });
         } else if (tab === "executors") {
-          await api.executors.update(editingId, { name: form.name || "" });
+          await api.executors.update(editingId, { name: form.name || "", transport: form.transport || "lora" });
         } else if (tab === "repeaters") {
           await api.repeaters.update(editingId, { name: form.name || "" });
         } else if (tab === "valves") {
@@ -233,7 +233,7 @@ export default function PhysicalModules() {
         if (tab === "sensors") {
           await api.sensors.create({ id: form.id, name: form.name || "", repeater_id: form.repeater_id || null });
         } else if (tab === "executors") {
-          await api.executors.create({ id: form.id, name: form.name || "" });
+          await api.executors.create({ id: form.id, name: form.name || "", transport: form.transport || "lora" });
         } else if (tab === "repeaters") {
           await api.repeaters.create({ id: form.id, name: form.name || "" });
         } else if (tab === "valves") {
@@ -402,6 +402,7 @@ export default function PhysicalModules() {
               <thead><tr>
                 <Th label="ID" sortKey="id" sort={executorsTable.sort} onSort={executorsTable.toggleSort} />
                 <Th label="Описание" sortKey="name" sort={executorsTable.sort} onSort={executorsTable.toggleSort} />
+                <Th label="Връзка" sortKey="transport" sort={executorsTable.sort} onSort={executorsTable.toggleSort} />
                 <Th label="Последен heartbeat" sortKey="last_heartbeat_at" sort={executorsTable.sort} onSort={executorsTable.toggleSort} />
                 <Th label="Статус" sortKey="is_active" sort={executorsTable.sort} onSort={executorsTable.toggleSort} />
                 <th></th>
@@ -411,6 +412,7 @@ export default function PhysicalModules() {
                   <tr key={e.id}>
                     <td><span className="id-tag mono">{e.id}</span></td>
                     <td>{e.name}</td>
+                    <td><span className="chip">{e.transport === "wifi" ? "Wi-Fi" : "LoRa"}</span></td>
                     <td className="muted">{fmtTime(e.last_heartbeat_at)}</td>
                     <td><StatusChip item={e} kind="executors" errors={openErrors} /></td>
                     <td>
@@ -611,6 +613,15 @@ export default function PhysicalModules() {
                 <input required={tab === "valves"} autoFocus={!!editingId} value={form.name || ""} onChange={(e) => field("name", e.target.value)} />
               </div>
             )}
+            {tab === "executors" && (
+              <div className="field full">
+                <label>Как е свързан</label>
+                <select value={form.transport || "lora"} onChange={(e) => field("transport", e.target.value)}>
+                  <option value="lora">LoRa (през Gateway)</option>
+                  <option value="wifi">Wi-Fi (директно към MQTT)</option>
+                </select>
+              </div>
+            )}
             {tab === "gateway" && (
               <div className="field full"><label>Описание</label><input value={form.name || ""} onChange={(e) => field("name", e.target.value)} /></div>
             )}
@@ -638,7 +649,7 @@ export default function PhysicalModules() {
                   <label>Управлява се от изпълнител</label>
                   <select value={form.executor_id || ""} onChange={(e) => field("executor_id", e.target.value)}>
                     <option value="">— избери изпълнител —</option>
-                    {executors.map((ex) => <option key={ex.id} value={ex.id}>{ex.id} — {ex.name}</option>)}
+                    {executors.map((ex) => <option key={ex.id} value={ex.id}>{ex.id} — {ex.name} ({ex.transport === "wifi" ? "Wi-Fi" : "LoRa"})</option>)}
                   </select>
                 </div>
                 <div className="field">
@@ -658,7 +669,7 @@ export default function PhysicalModules() {
                   <label>Управлява се от изпълнител</label>
                   <select value={form.executor_id || ""} onChange={(e) => field("executor_id", e.target.value)}>
                     <option value="">— избери изпълнител —</option>
-                    {executors.map((ex) => <option key={ex.id} value={ex.id}>{ex.id} — {ex.name}</option>)}
+                    {executors.map((ex) => <option key={ex.id} value={ex.id}>{ex.id} — {ex.name} ({ex.transport === "wifi" ? "Wi-Fi" : "LoRa"})</option>)}
                   </select>
                 </div>
                 <div className="field"><label>Макс. едновременни клапани</label><input type="number" min="1" value={form.max_simultaneous_valves || 1} onChange={(e) => field("max_simultaneous_valves", e.target.value)} /></div>

@@ -11,7 +11,7 @@ Definition (unchanged from what the dashboard always showed):
     sensor with nothing in that window contributes nothing - a zone with no
     fresh data at all averages to None, "-" on the dashboard). So the zone
     number always matches what the individual sensor tiles show right now;
-  - the sensor's 255.0 "invalid reading" marker is ignored;
+  - the sensor's -32768 "invalid reading" marker is ignored;
   - a leave-one-out outlier among the remaining values is excluded before
     averaging (robust_mean);
   - the result is rounded to 1 decimal.
@@ -25,7 +25,7 @@ from sqlalchemy.orm import object_session
 from . import models
 from .config import CONFIG
 
-SENSOR_FAULT_VALUE = 255.0  # manual 2.1: "this cycle's reading is invalid" marker - never a real value
+SENSOR_FAULT_VALUE = -32768.0  # manual 2.1: "this cycle's reading is invalid" marker - never a real value
 ATTRS = ("soil_t", "soil_h", "air_t", "air_h")
 
 

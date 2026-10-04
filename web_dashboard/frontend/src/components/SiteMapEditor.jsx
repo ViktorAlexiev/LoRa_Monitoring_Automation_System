@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import Modal from "./Modal.jsx";
 import { MAP_KINDS, MAP_COLORS, objectLabel } from "../utils/mapObjects.js";
+import PanZoom, { mapBounds } from "./PanZoom.jsx";
 
-const clamp = (v, lo = 0, hi = 100) => Math.min(hi, Math.max(lo, v));
+// The map can grow past the first screen: positions may go anywhere in this range (percent of the base canvas).
+const clamp = (v, lo = -300, hi = 400) => Math.min(hi, Math.max(lo, v));
 const STEP = 5;
 let nextKey = 1;
 const newKey = () => `s${nextKey++}`;
@@ -16,6 +18,7 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
   const [placed, setPlaced] = useState({}); // zone_id -> { x, y, w, h }
   const [objects, setObjects] = useState([]);
   const [selected, setSelected] = useState(null); // "z<id>" or object key
+  const [dragging, setDragging] = useState(false); // map bounds stay put while something is being dragged
   const [snap, setSnap] = useState(true);
   const [newName, setNewName] = useState("");
   const [newShape, setNewShape] = useState("rect");
@@ -63,6 +66,7 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
     drag.current = { type: resize ? `${type}-resize` : type, id, dx: cur.x - px, dy: cur.y - py };
     setSelected(type === "zone" ? `z${id}` : id);
     e.currentTarget.setPointerCapture(e.pointerId);
+    setDragging(true);
   }
 
   function onMove(e) {
@@ -72,15 +76,15 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
     if (d.type === "zone") {
       setPlaced((p) => ({ ...p, [d.id]: { ...p[d.id], x: clamp(q(px + d.dx)), y: clamp(q(py + d.dy)) } }));
     } else if (d.type === "zone-resize") {
-      setPlaced((p) => ({ ...p, [d.id]: { ...p[d.id], w: clamp(q((px - p[d.id].x) * 2), 5, 100), h: clamp(q((py - p[d.id].y) * 2), 5, 100) } }));
+      setPlaced((p) => ({ ...p, [d.id]: { ...p[d.id], w: clamp(q((px - p[d.id].x) * 2), 5, 400), h: clamp(q((py - p[d.id].y) * 2), 5, 400) } }));
     } else if (d.type === "object") {
       setObjects((l) => l.map((o) => (o.key === d.id ? { ...o, x: clamp(q(px + d.dx)), y: clamp(q(py + d.dy)) } : o)));
     } else {
-      setObjects((l) => l.map((o) => (o.key === d.id ? { ...o, w: clamp(q((px - o.x) * 2), 3, 100), h: clamp(q((py - o.y) * 2), 3, 100) } : o)));
+      setObjects((l) => l.map((o) => (o.key === d.id ? { ...o, w: clamp(q((px - o.x) * 2), 3, 400), h: clamp(q((py - o.y) * 2), 3, 400) } : o)));
     }
   }
 
-  const endDrag = () => { drag.current = null; };
+  const endDrag = () => { setDragging(false); drag.current = null; };
 
   async function save() {
     setSaving(true);
@@ -139,11 +143,14 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
         ))}
       </div>
 
-      <div className="site-map-scroll">
-        <div className="site-map site-map-whole site-map-edit" ref={mapRef} onPointerMove={onMove} onPointerUp={endDrag}
-             onPointerCancel={endDrag} onPointerDown={() => setSelected(null)}>
+      <PanZoom
+        stageRef={mapRef} className="site-map-whole site-map-edit" freezeBounds={dragging}
+        bounds={mapBounds([...objects, ...Object.values(placed)], { margin: 10, include: { x0: 0, y0: 0, x1: 100, y1: 100 } })}
+        onPointerMove={onMove} onPointerUp={endDrag} onPointerCancel={endDrag} onPointerDown={() => setSelected(null)}
+      >
+        <>
           {objects.map((o) => (
-            <div key={o.key} className={`map-obj obj-${o.kind} ${o.color ? `col-${o.color}` : ""} ${selected === o.key ? "map-obj-selected" : ""}`}
+            <div key={o.key} data-nodrag className={`map-obj obj-${o.kind} ${o.color ? `col-${o.color}` : ""} ${selected === o.key ? "map-obj-selected" : ""}`}
                  style={{ left: `${o.x}%`, top: `${o.y}%`, width: `${o.w}%`, height: `${o.h}%` }}
                  onPointerDown={(e) => startDrag(e, "object", o.key, o)}>
               <span className="map-obj-label">{objectLabel(o)}</span>
@@ -153,7 +160,7 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
           {zones.filter((z) => placed[z.id]).map((z) => {
             const p = placed[z.id];
             return (
-              <div key={z.id} className={`site-zone site-zone-ok site-zone-edit ${selected === `z${z.id}` ? "map-obj-selected" : ""}`}
+              <div key={z.id} data-nodrag className={`site-zone site-zone-ok site-zone-edit ${selected === `z${z.id}` ? "map-obj-selected" : ""}`}
                    style={{ left: `${p.x}%`, top: `${p.y}%`, width: `${p.w}%`, height: `${p.h}%` }}
                    onPointerDown={(e) => startDrag(e, "zone", z.id, p)}>
                 <span className="site-zone-name">{z.name}</span>
@@ -164,8 +171,8 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
           {loaded && Object.keys(placed).length === 0 && objects.length === 0 && (
             <div className="site-map-empty">Добави зоните от списъка отдолу</div>
           )}
-        </div>
-      </div>
+        </>
+      </PanZoom>
 
       {(selZone || selObj) && (
         <div className="obj-editor">

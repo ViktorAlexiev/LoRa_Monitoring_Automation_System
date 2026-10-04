@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import Modal from "./Modal.jsx";
 import { MAP_KINDS, MAP_COLORS, objectLabel } from "../utils/mapObjects.js";
+import PanZoom, { mapBounds } from "./PanZoom.jsx";
 
-const clamp = (v, lo = 0, hi = 100) => Math.min(hi, Math.max(lo, v));
+// The map can grow past the first screen: positions may go anywhere in this range (percent of the base canvas).
+const clamp = (v, lo = -300, hi = 400) => Math.min(hi, Math.max(lo, v));
 const STEP = 5; // snap step in percent of the map (grid lines are every 10 %)
 let nextKey = 1;
 const newKey = () => `o${nextKey++}`;
@@ -17,6 +19,7 @@ export default function ZoneLayoutModal({ zone, sensors, onClose, onSaved = () =
   const [pos, setPos] = useState({}); // sensor_id -> { x, y } (percent)
   const [objects, setObjects] = useState([]); // { key, kind, label, x, y, w, h }
   const [selected, setSelected] = useState(null); // object key
+  const [dragging, setDragging] = useState(false); // map bounds stay put while something is being dragged
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -88,6 +91,7 @@ export default function ZoneLayoutModal({ zone, sensors, onClose, onSaved = () =
     drag.current = { kind: resize ? "resize" : kind, id, dx: current.x - px, dy: current.y - py };
     if (kind === "object") setSelected(id);
     e.currentTarget.setPointerCapture(e.pointerId);
+    setDragging(true);
   }
 
   function onMove(e) {
@@ -101,12 +105,13 @@ export default function ZoneLayoutModal({ zone, sensors, onClose, onSaved = () =
     } else {
       // resize: the handle sits at the bottom-right corner; object x/y is its centre
       setObjects((list) => list.map((o) => (o.key === d.id
-        ? { ...o, w: clamp(q((px - o.x) * 2), 3, 100), h: clamp(q((py - o.y) * 2), 3, 100) }
+        ? { ...o, w: clamp(q((px - o.x) * 2), 3, 400), h: clamp(q((py - o.y) * 2), 3, 400) }
         : o)));
     }
   }
 
   function endDrag() {
+    setDragging(false);
     drag.current = null;
   }
 
@@ -171,12 +176,15 @@ export default function ZoneLayoutModal({ zone, sensors, onClose, onSaved = () =
         ))}
       </div>
 
-      <div className="site-map-scroll">
-        <div className="site-map site-map-edit" ref={mapRef} onPointerMove={onMove} onPointerUp={endDrag} onPointerCancel={endDrag}
-             onPointerDown={() => setSelected(null)}>
+      <PanZoom
+        stageRef={mapRef} className="site-map-edit" freezeBounds={dragging}
+        bounds={mapBounds([...objects, ...placed.map((s) => ({ ...pos[s.id], w: 14, h: 14 }))], { margin: 10, include: { x0: 0, y0: 0, x1: 100, y1: 100 } })}
+        onPointerMove={onMove} onPointerUp={endDrag} onPointerCancel={endDrag} onPointerDown={() => setSelected(null)}
+      >
+        <>
           {objects.map((o) => (
             <div
-              key={o.key} className={`map-obj obj-${o.kind} ${o.color ? `col-${o.color}` : ""} ${selected === o.key ? "map-obj-selected" : ""}`}
+              key={o.key} data-nodrag className={`map-obj obj-${o.kind} ${o.color ? `col-${o.color}` : ""} ${selected === o.key ? "map-obj-selected" : ""}`}
               style={{ left: `${o.x}%`, top: `${o.y}%`, width: `${o.w}%`, height: `${o.h}%` }}
               onPointerDown={(e) => startDrag(e, "object", o.key, o)}
             >
@@ -188,7 +196,7 @@ export default function ZoneLayoutModal({ zone, sensors, onClose, onSaved = () =
           ))}
           {placed.map((s) => (
             <div
-              key={s.id} className="map-chip"
+              key={s.id} data-nodrag className="map-chip"
               style={{ left: `${pos[s.id].x}%`, top: `${pos[s.id].y}%` }}
               onPointerDown={(e) => { if (!e.target.closest(".map-chip-x")) startDrag(e, "sensor", s.id, pos[s.id]); }}
             >
@@ -199,8 +207,8 @@ export default function ZoneLayoutModal({ zone, sensors, onClose, onSaved = () =
           {loaded && placed.length === 0 && objects.length === 0 && (
             <div className="site-map-empty">Добави сензори от списъка отдолу</div>
           )}
-        </div>
-      </div>
+        </>
+      </PanZoom>
 
       {sel && (
         <div className="obj-editor">

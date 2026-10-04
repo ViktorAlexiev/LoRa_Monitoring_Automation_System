@@ -45,8 +45,10 @@ COMMAND_ACK_DELAY_S = 0.4     # how long the fake executor takes to "flip the pi
 TOPIC_SENSORS = "sensors"
 TOPIC_HEARTBEAT = "heartbeat"
 TOPIC_COMMANDS = "commands"
+TOPIC_WIFI_COMMANDS = "wifi_commands"  # Wi-Fi modules: same JSON, no Gateway; com "C3" = state request
+COM_STATE = "C3"
 TOPIC_COMMANDS_STATUS = "commands_status"
-TOPIC_MODULE_STATES_REQUEST = "module_states_request"
+TOPIC_MODULE_STATES_REQUEST = "module_states_requests"
 TOPIC_MODULE_STATES_RESPONSE = "module_states_response"
 
 COM_ON = "A1"
@@ -85,7 +87,7 @@ class FakeExecutor:
     """One physical Executor module: owns some valves/pumps, tracks their
     ACTUAL on/off state independently of the backend DB (this is the
     'ground truth' the real relay board would hold), and answers commands/
-    module_states_request the way the real firmware does (manual 3.2)."""
+    module_states_requests the way the real firmware does (manual 3.2)."""
 
     def __init__(self, executor_id, consumer_ids):
         self.executor_id = executor_id
@@ -172,7 +174,7 @@ class FieldSimulator:
         # Fault-injection / stale-sensor toggles, flippable at runtime by
         # editing these sets from the interactive console (see main()).
         self.sensors_paused = set()      # sensor ids to stop reporting (-> SENSOR_OFFLINE)
-        self.sensors_faulty = set()      # sensor ids to report 255.0 (-> SENSOR_FAULT_255)
+        self.sensors_faulty = set()      # sensor ids to report -32768 (-> SENSOR_FAULT_255)
         self.sensors_stuck = set()       # sensor ids to freeze their last value (-> SENSOR_STUCK_VALUE)
         self.executors_paused = set()    # executor ids to stop heartbeating (-> device offline)
         self.repeater_paused = False
@@ -183,6 +185,7 @@ class FieldSimulator:
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code == 0:
             client.subscribe(TOPIC_COMMANDS, qos=1)
+            client.subscribe(TOPIC_WIFI_COMMANDS, qos=1)
             client.subscribe(TOPIC_MODULE_STATES_REQUEST, qos=1)
             print(f"fake_field: connected to {self.settings['host']}:{self.settings['port']}, "
                   f"simulating {list(self.executors)} + sensors {SENSORS} + {REPEATER_ID} + {GATEWAY_ID}")
@@ -194,7 +197,7 @@ class FieldSimulator:
             payload = json.loads(msg.payload.decode("utf-8"))
         except ValueError:
             return
-        if msg.topic == TOPIC_COMMANDS:
+        if msg.topic in (TOPIC_COMMANDS, TOPIC_WIFI_COMMANDS):
             executor_id = payload.get("M_ID")
             consumer_id = payload.get("C_ID")
             com = payload.get("com")
@@ -204,6 +207,9 @@ class FieldSimulator:
                 return
             if executor_id in self.executors_paused:
                 print(f"fake_field: {executor_id} is paused (offline) - dropping command silently")
+                return
+            if com == COM_STATE:
+                ex.handle_states_request(client)
                 return
             ex.handle_command(client, consumer_id, com)
         elif msg.topic == TOPIC_MODULE_STATES_REQUEST:
@@ -244,7 +250,7 @@ class FieldSimulator:
                 air_h_base = AIR_BASE[sensor_id][1]
 
                 if sensor_id in self.sensors_faulty:
-                    payload = {"id": sensor_id, "sT": 255.0, "sH": 255.0, "aT": 255.0, "aH": 255.0,
+                    payload = {"id": sensor_id, "sT": -32768.0, "sH": -32768.0, "aT": -32768.0, "aH": -32768.0,
                                "rssi": -60, "snr": 8.0, "ts": int(time.time())}
                 else:
                     payload = {
