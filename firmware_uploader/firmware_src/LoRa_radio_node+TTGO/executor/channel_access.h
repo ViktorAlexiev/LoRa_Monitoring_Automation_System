@@ -53,7 +53,7 @@ uint8_t channelAccessPoll(ChannelAccess *ca, uint32_t now, ChannelBusyFn busy, C
 
 // Стандартна реализация на случайното число (Arduino random)
 inline uint32_t channelRandom(uint32_t maxExcl) {
-  return maxExcl <= 1 ? 0 : (uint32_t)random((long)maxExcl);
+  return maxExcl <= 1 ? 0 : (uint32_t)random((int32_t)maxExcl);
 }
 
 #endif

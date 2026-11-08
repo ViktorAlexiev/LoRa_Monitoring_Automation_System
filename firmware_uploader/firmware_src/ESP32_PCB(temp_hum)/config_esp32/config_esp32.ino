@@ -118,6 +118,11 @@ void handleConfigLine(const String &line) {
   extractStringField(json, "key", keyStr);
   extractStringField(json, "net", net);
 
+  if (keyStr.length() > 0) {
+    // ключ, подаден невалиден, не бива да се губи тихо: иначе устройството получава ACK, но няма ключ
+    uint8_t probe[16];
+    if (!hexToBytes(keyStr, probe, 16)) { sendNack("невалиден key (трябват 32 hex символа)"); return; }
+  }
   if (sfStr.length() > 0) {
     long sf = sfStr.toInt();
     if (sf < 7 || sf > 12) { sendNack("невалиден sf (трябва 7..12)"); return; }

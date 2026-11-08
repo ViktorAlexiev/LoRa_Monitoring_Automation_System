@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-13T22:30:00Z",
+  "title": "Design System: Firmware Viewer (Прошивка)",
+  "extensions": {
+    "colorMeta": {
+      "scope-black": { "role": "neutral", "displayName": "Scope Black", "canonical": "#080C11", "tonalRamp": ["#05080B", "#080C11", "#0D131A", "#121A23", "#17212C", "#2B3A48", "#7F8E9B", "#E6EEF4"] },
+      "cursor-yellow": { "role": "primary", "displayName": "Cursor Yellow", "canonical": "#F5D547", "tonalRamp": ["#2B2608", "#4D4210", "#7A6A18", "#A88F22", "#D4B434", "#F5D547", "#F8E283", "#FCF1BE"] },
+      "channel-blue": { "role": "secondary", "displayName": "Channel Blue", "canonical": "#5AA9FF", "tonalRamp": ["#0C2340", "#143B6B", "#1F5AA3", "#3A82E0", "#5AA9FF", "#8EC4FF", "#BFDDFF", "#E4F1FF"] },
+      "channel-violet": { "role": "secondary", "displayName": "Channel Violet", "canonical": "#B28CFF", "tonalRamp": ["#251547", "#3F2478", "#5E39AD", "#8460DB", "#B28CFF", "#C9AEFF", "#DFCFFF", "#F1E9FF"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Device Name", "purpose": "Names above each block diagram, in mono." },
+      "code": { "displayName": "Source", "purpose": "The source column and every inline identifier." }
+    },
+    "shadows": [
+      { "name": "popup", "value": "0 6px 14px rgba(0,0,0,.42), 0 1px 3px rgba(0,0,0,.3)", "purpose": "Popups only; they overlap content." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(.23, 1, .32, 1)", "purpose": "Every entrance and state change." },
+      { "name": "ease-drawer", "value": "cubic-bezier(.32, .72, 0, 1)", "purpose": "Rail drawer and bottom sheet on phones." },
+      { "name": "dur-press", "value": "120ms", "purpose": "Press feedback on chips and buttons." },
+      { "name": "dur-pop", "value": "160ms", "purpose": "Popup open." },
+      { "name": "dur-row", "value": "280ms", "purpose": "First 26 rows when a file opens, staggered 14ms." },
+      { "name": "dur-capture", "value": "1500ms", "purpose": "Landing flash on the line you jumped to." }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "900px" },
+      { "name": "narrow", "value": "540px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Tab",
+      "kind": "nav",
+      "refersTo": "tab",
+      "description": "Segmented tab in the header with a sliding indicator.",
+      "html": "<button class=\"ds-tab on\">Код ред по ред</button>",
+      "css": ".ds-tab{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:9px;color:#AEBCC8;font:500 13.5px Geologica,system-ui,sans-serif;background:transparent;border:1px solid transparent;transition:color .16s cubic-bezier(.23,1,.32,1)}.ds-tab.on{background:#17212C;border-color:#2B3A48;color:#E6EEF4}.ds-tab:hover{color:#E6EEF4}.ds-tab:focus-visible{outline:2px solid #F5D547;outline-offset:2px}"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Pill that jumps between code, diagram and related sections.",
+      "html": "<button class=\"ds-chip\">sensor › A3</button>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;border:1px solid #2B3A48;color:#AEBCC8;background:transparent;font:500 12px Geologica,system-ui,sans-serif;transition:background .14s,color .14s,transform .12s cubic-bezier(.23,1,.32,1)}.ds-chip:hover{background:#17212C;color:#E6EEF4}.ds-chip:active{transform:scale(.96)}.ds-chip:focus-visible{outline:2px solid #F5D547;outline-offset:2px}"
+    },
+    {
+      "name": "Timeline frame",
+      "kind": "custom",
+      "refersTo": "popup",
+      "description": "A decoded function frame on the timeline; the current one takes the cursor tint.",
+      "html": "<span class=\"ds-frame\">handleIncoming</span>",
+      "css": ".ds-frame{display:inline-block;height:26px;padding:0 6px;border-radius:5px;font:500 10.5px/26px 'JetBrains Mono',monospace;color:#E6EEF4;background:color-mix(in oklab,#5AA9FF 22%,#0D131A);border:1px solid color-mix(in oklab,#5AA9FF 55%,transparent)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Capture",
+    "overview": "The viewer is a recording from a logic analyzer. Every function is a decoded frame on a timeline, the line you stand on is a cursor, and the arrows on the block diagrams are signals that travel when you click.",
+    "keyCharacteristics": [
+      "Timeline of decoded frames above the code, with a window that tracks the visible lines and a cursor on the active line.",
+      "Channel colors as semantics: function blue, type violet, macro orange, global green, constant yellow, external brown.",
+      "Instrument readouts in monospace with tabular numerals; prose in a humanist sans with Bulgarian Cyrillic support.",
+      "Motion explains: a pulse along the arrows, a capture flash where you land, a frame ping on the timeline. Nothing loops."
+    ],
+    "rules": [
+      { "name": "The Resistor Code Rule", "body": "Channel colors map to roles and never to decoration. A new role takes the next free channel, not a new hue.", "section": "colors" },
+      { "name": "The One Pointer Rule", "body": "Cursor yellow marks position only. It never decorates a surface or a label.", "section": "colors" },
+      { "name": "The Tabular Rule", "body": "Every number that can change on screen uses tabular numerals.", "section": "typography" },
+      { "name": "The Hairline-or-Shadow Rule", "body": "A surface is defined either by its hairline or by a lift. Popups carry the hairline and a tight shadow, never a wide diffuse glow.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do bind every new color to a role in the channel table.",
+      "Do keep motion under 300ms, ease-out, on transform and opacity; the one exception is the stroke pulse on diagram edges.",
+      "Do honor prefers-reduced-motion by dropping movement and keeping opacity changes.",
+      "Do keep numerals tabular and code on 13px mono."
+    ],
+    "donts": [
+      "Don't add a decorative grid behind code; the graticule belongs to the diagram canvas and the timeline scale.",
+      "Don't use cursor yellow as a fill color for decoration.",
+      "Don't put a kicker above any heading.",
+      "Don't replace the SVG icon set with text glyphs."
+    ]
+  }
+}

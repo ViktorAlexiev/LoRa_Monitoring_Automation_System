@@ -1,0 +1,2 @@
+1: коментар: радио слоят е SX1262 през RadioLib; RadioLib е компонент от регистъра на ESP-IDF (виж `idf_component.yml`).
+2..5: `idf_component_register(...)` ([[component]]): единственият .cpp е `agro_radio.cpp`; `include` е публична папка; `REQUIRES` са зависимостите: наши (`agro_hal`, `agro_core`, `agro_board`), на ESP-IDF (`esp_driver_gpio`, `esp_driver_spi`, `log`) и `jgromes__radiolib`. Името на компонента от регистъра заменя `/` с `__`, затова `jgromes/radiolib` става `jgromes__radiolib`.

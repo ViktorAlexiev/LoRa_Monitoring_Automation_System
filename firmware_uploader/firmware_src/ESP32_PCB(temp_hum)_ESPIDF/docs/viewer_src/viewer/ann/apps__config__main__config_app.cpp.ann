@@ -1,0 +1,40 @@
+1: включва `config_app.h`.
+3: `<stdio.h>`: `snprintf`.
+4: `<string.h>`.
+5: `cfg_parse.h`: `CfgLineBuffer`, `cfg_apply_line`, `CfgReply`.
+6: `agro_hal.h`: `hal_millis`, `hal_delay_ms`.
+8: `static CfgLineBuffer s_line;` буферът за ред е 2 KB: статичен, а не на стека (стекът е ограничен).
+10: `ConfigResult config_run(io, timeoutMs, readyIntervalMs)`: главният цикъл на слушането.
+11: `s_line = CfgLineBuffer();` нулира буфера (нов празен обект).
+12: `start` = кога е започнал прозорецът.
+13: `lastReady = start - readyIntervalMs;` така първото `READY` излиза веднага (изглежда сякаш предишното е било преди един интервал).
+15: `while ((uint32_t)(hal_millis() - start) < timeoutMs) {` цикъл, докато не изтече прозорецът (разлика без знак, вярна и при пренасяне).
+16: коментар: `READY` на всеки 500 ms, за да знае Python кога прошивката реално слуша.
+17: ако са минали поне `readyIntervalMs` от последното `READY` ...
+18: ... `io->print("READY");` изпраща ...
+19: ... `lastReady = now`.
+20: затваря.
+22: `int32_t c = io->getChar();` следващият символ (`->` е достъп през указател; извиква функцията, към която сочи `getChar`).
+23: ако няма символ (`c < 0`) ...
+24: ... `hal_delay_ms(10)`: отстъпва процесора за 10 ms ...
+25: ... `continue`.
+26: затваря.
+27: `if (!s_line.feed(c)) {` подава символа на буфера; ако няма още цял ред ...
+28: ... ако редът е бил прекалено дълъг, изпраща `NACK:ред твърде дълъг` ...
+29: ... `continue`.
+30: затваря.
+31: `line` = цялият ред.
+32: ако не започва с `CFG:` -> `continue` (други редове, напр. лог на boot-а, се игнорират).
+34: `CfgReply r;`
+35: `cfg_apply_line(line, &r);` валидира и записва в NVS.
+36: ако е приета ...
+37: ... `ACK` ...
+38: ... `return CONFIG_ACKED`.
+39: затваря.
+40: `char out[CFG_LINE_MAX / 16];` буфер за съобщението (2048 / 16 = 128 B).
+41: `snprintf(out, sizeof(out), "NACK:%s", r.reason);` форматира `NACK:<причина>`.
+42: изпраща го.
+43: затваря цикъла.
+44: прозорецът е изтекъл: изпраща `NACK:Timeout ...`.
+45: `return CONFIG_TIMED_OUT;`
+46: затваря.

@@ -1,0 +1,191 @@
+components/agro_core/consumers.cpp|28|ако пинът на консуматора НЕ е използваем на платката (`board_gpio_usable` връща `false`: пин на flash, PSRAM, USB или UART) ...
+components/agro_core/json_util.cpp|85|`JsonOut &JsonOut::endObject() {` затваря текущия обект: връща се едно ниво нагоре в стека на строителя.
+components/agro_core/json_util.cpp|90|`JsonOut &JsonOut::beginArray(const char *key) {` започва масив със зададения ключ; може да се вика само когато текущият възел е обект.
+components/agro_core/json_util.cpp|100|`JsonOut &JsonOut::endArray() {` затваря текущия масив: връща се едно ниво нагоре в стека.
+components/agro_core/json_util.cpp|105|`JsonOut &JsonOut::str(const char *key, const char *val) {` добавя към текущия обект поле с низова стойност.
+components/agro_core/json_util.cpp|112|`JsonOut &JsonOut::num(const char *key, int32_t v) {` добавя към текущия обект поле с цяло число със знак.
+components/agro_core/json_util.cpp|128|`JsonOut &JsonOut::fixed2(const char *key, int32_t hundredths) {` добавя число с точно два десетични знака; стойността е в стотни (2257 дава 22.57).
+components/agro_core/json_util.cpp|138|`JsonOut &JsonOut::boolean(const char *key, bool v) {` добавя към текущия обект поле `true` или `false`.
+components/agro_core/json_util.cpp|141|ако няма текущ обект, или възелът не е обект, или `cJSON_AddBoolToObject(o, key, v ? 1 : 0)` върне `nullptr` (няма памет) -> маркира цялото строене като неуспешно (`fail()`). Тернарният израз превръща `bool` в 1 или 0, както очаква cJSON.
+components/agro_cfg/cfg_parse.cpp|52|ако символът е цифра `'0'..'9'`, връща числото му: `c - '0'` (разликата между кодовете на символите е стойността на цифрата, напр. `'7' - '0' = 7`).
+components/agro_cfg/cfg_parse.cpp|138|NACK с причина "Невалиден консуматор запис" и излиза: полето `id` или `pin` на консуматора липсва или не е низ.
+components/agro_cfg/cfg_parse.cpp|183|ако е зададен SF, записва го в NVS като `uint8_t` под ключа `sf` (резултатът се натрупва в `ok`).
+components/agro_cfg/cfg_parse.cpp|184|ако е зададена ширина на канала, записва я в NVS като `uint32_t` под ключа `bw`.
+components/agro_cfg/cfg_parse.cpp|194|записва ID на консуматора `i` в NVS под ключа `c<i>i` (напр. `c0i`).
+components/agro_cfg/cfg_parse.cpp|195|записва номера на пина на консуматора `i` под ключа `c<i>p` (напр. `c0p`).
+components/agro_cfg/cfg_parse.cpp|199|записва името на Wi-Fi мрежата (SSID) в NVS под ключа `wssid`.
+components/agro_cfg/cfg_parse.cpp|200|записва паролата на Wi-Fi под ключа `wpass`.
+components/agro_cfg/cfg_parse.cpp|201|записва адреса на MQTT брокера под ключа `mqip`.
+components/agro_cfg/cfg_parse.cpp|202|записва порта на MQTT (като низ) под ключа `mqport`.
+components/agro_cfg/cfg_parse.cpp|203|записва MQTT потребителя под ключа `mquser`.
+components/agro_cfg/cfg_parse.cpp|204|записва MQTT паролата под ключа `mqpass`.
+components/agro_net/mqtt_link.cpp|144|ако клиентът не е създаден (`esp_mqtt_client_init` върна `nullptr`, обикновено няма памет) -> `return false`.
+apps/repeater/main/rep_radio.cpp|167|ако брояч `s_hbCounter.next(&ctr)` успее да върне следваща безопасна стойност (записът на тавана в NVS е минал) ...
+apps/executor/main/exec_radio.cpp|114|ако автоматът върне `CH_WAIT` (още не е решено дали каналът е свободен) ...
+apps/gateway/main/gw_logic.cpp|122|ако брояч `nextCounter(&ctr)` е неуспешен (NVS не е записан), излиза без да изпраща: никога не излъчва с непотвърден nonce.
+apps/gateway/main/gw_logic.cpp|133|същата проверка на брояча: при неуспех не изпраща state request.
+apps/gateway/main/gw_radio.cpp|117|`} else if (len == HB_WIRE_LEN) {` 14 B = heartbeat на repeater, heartbeat на executor или state response с 0 консуматора ...
+apps/gateway/main/gw_radio.cpp|195|ако автоматът върне `CH_WAIT` (каналът още не е решен свободен) ...
+apps/gateway/main/gw_radio.cpp|199|ако автоматът върне `CH_CLEAR` (каналът е свободен) ...
+apps/executor_wifi/main/ew_logic.cpp|113|`char topic[40], msg[64];` два буфера: за темата `executors/<id>/lwt` и за съобщението на Last Will.
+components/agro_core/channel_access.cpp|66|`switch (ca->state) {` избира блока на текущото състояние на автомата.
+components/agro_core/channel_access.cpp|67|`case CH_ST_SENSING:` състояние "сондиране": задачата трябва да се събуди при следващата проверка ИЛИ при края на срока.
+components/agro_core/channel_access.cpp|72|`case CH_ST_BACKOFF:` състояние "случаен слот": чака до насрочения момент.
+components/agro_board/include/board_pins.h|5|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+components/agro_hal/hal.cpp|2|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+components/agro_core/ceiling_counter.cpp|2|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+components/agro_core/radio_timing.cpp|2|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+components/agro_cfg/include/cfg_parse.h|27|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+components/agro_cfg/cfg_parse.cpp|2|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+components/agro_net/mqtt_link.cpp|2|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+components/agro_net/wifi_link.cpp|2|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+apps/sensor/main/app_main.cpp|9|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+apps/repeater/main/rep_radio.cpp|2|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+apps/executor/main/exec_radio.cpp|2|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+apps/gateway/main/gw_radio.cpp|2|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+apps/gateway/main/app_main.cpp|17|`<stdint.h>`: типове с ТОЧЕН размер (`int32_t`, `uint32_t`, `uint64_t`...) и макросите за константи (`UINT32_C(5000)`, `UINT64_C(1)`).
+components/agro_core/consumers.cpp|2|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+components/agro_core/json_util.cpp|2|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+components/agro_radio/agro_radio.cpp|2|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+components/agro_cfg/cfg_parse.cpp|3|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+components/agro_net/mqtt_link.cpp|5|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/sensor/main/app_main.cpp|10|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/sensor/main/sensor_tx.cpp|2|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/sensor/main/sensors_io.cpp|2|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/repeater/main/app_main.cpp|12|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/executor/main/app_main.cpp|12|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/executor/main/exec_cmd.cpp|2|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/executor/main/exec_radio.cpp|3|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/gateway/main/app_main.cpp|18|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/gateway/main/gw_config.cpp|2|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/gateway/main/gw_logic.cpp|2|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/gateway/main/gw_radio.cpp|3|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/executor_wifi/main/app_main.cpp|10|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/executor_wifi/main/ew_config.cpp|2|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/executor_wifi/main/ew_logic.cpp|2|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/repeater/main/rep_radio.cpp|3|`<inttypes.h>`: макросите `PRIu32`, `PRId32`, `PRIX32`... - верният printf формат за 32-битови типове на конкретната платформа (на ESP32 `uint32_t` е `unsigned long`, затова не е `%u`).
+apps/config/main/app_main.cpp|10|`static int32_t consoleGetChar(void) { return getchar(); }` обвивка на `getchar()`: чете символ от конзолата; връща -1 (EOF), ако няма данни (конзолата не блокира). Връщаният тип е `int32_t` (-1 трябва да се побира със знак).
+components/agro_hal/include/agro_hal.h|69|`hal_fatal_restart(what)`: невъзстановима грешка при старт: логва `what`, изчаква 2 s и рестартира (виж `hal.cpp`). `__attribute__((noreturn))` казва на компилатора, че функцията никога не се връща към викащия. Виж: [[error-handling|Обработка на грешки]], [[fail-safe|Безопасно състояние при грешка]].
+components/agro_hal/hal.cpp|132|`void hal_fatal_restart(const char *what) {` започва функцията: `what` е кратко описание какво се е счупило (за лога). Вика се от `app_main` при неуспешно създаване на опашка/задача и при неуспешен старт на мрежата. Виж: [[fail-safe|Безопасно състояние при грешка]].
+components/agro_hal/hal.cpp|133|`ESP_LOGE(...)` логва причината като грешка; `%s` се замества с текста `what`.
+components/agro_hal/hal.cpp|134|`hal_delay_ms(2000)`: пауза 2 s (задачата отстъпва процесора). Оставя лога да излезе и пази от бърз безкраен цикъл на рестарти, ако грешката се повтаря всеки път.
+components/agro_hal/hal.cpp|135|`hal_restart();` рестартира чипа (`esp_restart`). Консуматорите на executor вече са изключени при старт, така че рестартът е в безопасното състояние.
+components/agro_cfg/cfg_parse.cpp|62|`int32_t lo = hexVal(hex[i * 2 + 1]);` стойността на втората (долната) цифра на байта. Всяка променлива е в собствена декларация - не се слагат две с запетая ([[pointer]]).
+components/agro_net/include/mqtt_link.h|58|`bool mqtt_link_publish(topic, payload, len, qos, retain)`: записва съобщението за изпращане (НЕ блокира - вътрешно `esp_mqtt_client_enqueue`). `true` значи "прието", не "доставено". `qos` е `int32_t`.
+components/agro_net/mqtt_link.cpp|167|`esp_mqtt_client_enqueue(...)` записва съобщението в outbox на esp-mqtt и излиза веднага; самото изпращане става в задачата на esp-mqtt. Последният аргумент `true` = да се записват и QoS 0 съобщения. Предишното `esp_mqtt_client_publish` изпращаше в задачата на викащия и можеше да блокира до 10 s при полумъртъв сокет ([[timeouts|Всичко има таймаут]], [[blocking|Блокиране и чакане]]). Връща -1 при грешка и -2 при пълен outbox.
+components/agro_net/wifi_link.cpp|77|`if (esp_netif_create_default_wifi_sta() == nullptr) return false;` създава мрежовия интерфейс на станцията (DHCP клиент и др.); при `nullptr` (няма памет) стартът се отказва с `false`. Виж: [[null-deref|Разчитане на nullptr]].
+components/agro_net/wifi_link.cpp|91|`if (esp_wifi_set_ps(WIFI_PS_NONE) != ESP_OK) ESP_LOGW(...)`: без пестене на ток за Wi-Fi (по-малко закъснение); при неуспех само предупреждение - не е критично.
+components/agro_net/wifi_link.cpp|94|`return esp_timer_start_periodic(s_superTimer, UINT64_C(1000000)) == ESP_OK;` стартира надзирателя на всяка секунда (1 000 000 µs). Връща `false`, ако таймерът не стартира - без него няма 2-минутен рестарт при липса на мрежа, затова неуспехът е грешка на старта (`app_main` рестартира).
+apps/gateway/main/app_main.cpp|63|Ако `xQueueCreate` не успее (няма памет), връща `nullptr` ([[null-deref|nullptr]]) - без опашка системата не може да работи. При неуспех `hal_fatal_restart` логва, изчаква 2 s и рестартира (виж `hal.cpp`) - устройството не остава тихо без тази функция. Виж: [[error-handling|Обработка на грешки]].
+apps/gateway/main/app_main.cpp|68|създава `gw_radio` (стек 5120 B, приоритет 10, ядро 1; `&radioTask` получава дръжката). `xTaskCreatePinnedToCore` връща `pdPASS` при успех; всичко друго значи неуспех (напр. няма памет за стека). Виж: [[task-create|Създаване на задача]], [[rtos-priorities-project|Приоритетите в проекта]].
+apps/gateway/main/app_main.cpp|69|При неуспех `hal_fatal_restart` логва, изчаква 2 s и рестартира (виж `hal.cpp`) - устройството не остава тихо без тази функция. Виж: [[error-handling|Обработка на грешки]].
+apps/gateway/main/app_main.cpp|73|създава `gw_cmd` (стек 6144 B, приоритет 5, ядро 0) и проверява резултата (`pdPASS`). Виж: [[task-create|Създаване на задача]], [[rtos-priorities-project|Приоритетите в проекта]].
+apps/gateway/main/app_main.cpp|74|При неуспех `hal_fatal_restart` логва, изчаква 2 s и рестартира (виж `hal.cpp`) - устройството не остава тихо без тази функция. Виж: [[error-handling|Обработка на грешки]].
+apps/gateway/main/app_main.cpp|87|`mqtt_link_init(&mc)` връща `false`, ако клиентът не се подготви (няма памет, таймерът не стартира); тогава рестарт - иначе 2-минутният надзор на връзката нямаше да съществува. Виж: [[error-handling|Обработка на грешки]].
+apps/gateway/main/app_main.cpp|88|`wifi_link_start(...)` връща `false` при ранна грешка (мрежов интерфейс, събития, Wi-Fi драйвер, таймер); тогава рестарт. При успех, щом има IP, се вика `onGotIp` и започва MQTT.
+apps/executor/main/app_main.cpp|43|Ако `xQueueCreate` не успее (няма памет), връща `nullptr` ([[null-deref|nullptr]]) - без опашка системата не може да работи. При неуспех `hal_fatal_restart` логва, изчаква 2 s и рестартира (виж `hal.cpp`) - устройството не остава тихо без тази функция. Виж: [[error-handling|Обработка на грешки]].
+apps/executor/main/app_main.cpp|47|създава радио задачата (стек 5120 B, приоритет 6, ядро 1; `&radioTask` получава дръжката) и проверява резултата (`pdPASS`). Виж: [[task-create|Създаване на задача]], [[rtos-priorities-project|Приоритетите в проекта]].
+apps/executor/main/app_main.cpp|48|При неуспех `hal_fatal_restart` логва, изчаква 2 s и рестартира (виж `hal.cpp`) - устройството не остава тихо без тази функция. Виж: [[error-handling|Обработка на грешки]]. Консуматорите вече са изключени (безопасно състояние).
+apps/executor/main/app_main.cpp|52|създава `exec_cmd` (стек 3072 B, приоритет 5, ядро 1) и проверява резултата. Виж: [[task-create|Създаване на задача]].
+apps/executor/main/app_main.cpp|53|При неуспех `hal_fatal_restart` логва, изчаква 2 s и рестартира (виж `hal.cpp`) - устройството не остава тихо без тази функция. Виж: [[error-handling|Обработка на грешки]].
+apps/repeater/main/app_main.cpp|35|Ако `xQueueCreate` не успее (или `xSemaphoreCreateMutex`; няма памет) връща `nullptr` ([[null-deref|nullptr]]) - без опашка/mutex системата не може да работи. При неуспех `hal_fatal_restart` логва, изчаква 2 s и рестартира (виж `hal.cpp`) - устройството не остава тихо без тази функция. Виж: [[error-handling|Обработка на грешки]].
+apps/repeater/main/app_main.cpp|38|създава `rep_rx` (стек 4096 B, приоритет 6, ядро 1; аргумент и дръжка не се ползват) и проверява резултата (`pdPASS`). Виж: [[task-create|Създаване на задача]], [[rtos-priorities-project|Приоритетите в проекта]].
+apps/repeater/main/app_main.cpp|39|При неуспех `hal_fatal_restart` логва, изчаква 2 s и рестартира (виж `hal.cpp`) - устройството не остава тихо без тази функция. Виж: [[error-handling|Обработка на грешки]].
+apps/repeater/main/app_main.cpp|41|същото за `rep_fwd` (стек 4096 B, приоритет 5, ядро 1): проверява резултата (`pdPASS`).
+apps/repeater/main/app_main.cpp|42|При неуспех `hal_fatal_restart` логва, изчаква 2 s и рестартира (виж `hal.cpp`) - устройството не остава тихо без тази функция. Виж: [[error-handling|Обработка на грешки]].
+apps/executor_wifi/main/app_main.cpp|43|Ако `xQueueCreate` не успее (няма памет), връща `nullptr` ([[null-deref|nullptr]]) - без опашка системата не може да работи. При неуспех `hal_fatal_restart` логва, изчаква 2 s и рестартира (виж `hal.cpp`) - устройството не остава тихо без тази функция. Виж: [[error-handling|Обработка на грешки]].
+apps/executor_wifi/main/app_main.cpp|45|създава `ew_exec` (стек 4096 B, приоритет 5, ядро 1) и проверява резултата (`pdPASS`). Виж: [[task-create|Създаване на задача]], [[rtos-priorities-project|Приоритетите в проекта]].
+apps/executor_wifi/main/app_main.cpp|46|При неуспех `hal_fatal_restart` логва, изчаква 2 s и рестартира (виж `hal.cpp`) - устройството не остава тихо без тази функция. Виж: [[error-handling|Обработка на грешки]].
+apps/executor_wifi/main/app_main.cpp|64|`mqtt_link_init(&mc)` връща `false` при неуспех (няма памет, таймерът не стартира); тогава рестарт. Виж: [[error-handling|Обработка на грешки]].
+apps/executor_wifi/main/app_main.cpp|65|`wifi_link_start(...)` връща `false` при ранна грешка; тогава рестарт - иначе устройството остава офлайн без 2-минутния надзор.
+apps/gateway/main/gw_radio.cpp|239|`hal_irq_attach(...)` закача прекъсването на DIO1 (виж [[irq-path-project|Пътят на прекъсването DIO1 в проекта]]). Връща `false`, ако пинът или услугата не се настроят; без прекъсване радиото не може да събуди задачата, затова при неуспех рестарт (`hal_fatal_restart`).
+apps/executor/main/exec_radio.cpp|403|`hal_irq_attach(...)` закача прекъсването на DIO1 (виж [[irq-path-project|Пътят на прекъсването DIO1 в проекта]]). Връща `false`, ако пинът или услугата не се настроят; без прекъсване радиото не може да събуди задачата, затова при неуспех рестарт (`hal_fatal_restart`).
+apps/repeater/main/rep_radio.cpp|207|`hal_irq_attach(...)` закача прекъсването на DIO1 (виж [[irq-path-project|Пътят на прекъсването DIO1 в проекта]]). Връща `false`, ако пинът или услугата не се настроят; без прекъсване радиото не може да събуди задачата, затова при неуспех рестарт (`hal_fatal_restart`).
+apps/repeater/main/rep_radio.cpp|217|`HAL_STACK_PROBE();` проба на стека (диагностика, по подразбиране изключена): при нов най-нисък остатък на стека логва "стек <задача>: най-малко свободно N B". Включва се с `AGRO_STACK_PROBE=1`. Виж: [[stack-hwm|uxTaskGetStackHighWaterMark]], [[task-stack|Размер на стека на задача]].
+apps/repeater/main/rep_radio.cpp|228|`HAL_STACK_PROBE();` проба на стека (диагностика, по подразбиране изключена): при нов най-нисък остатък на стека логва "стек <задача>: най-малко свободно N B". Включва се с `AGRO_STACK_PROBE=1`. Виж: [[stack-hwm|uxTaskGetStackHighWaterMark]], [[task-stack|Размер на стека на задача]].
+apps/executor/main/exec_cmd.cpp|56|`HAL_STACK_PROBE();` проба на стека (диагностика, по подразбиране изключена): при нов най-нисък остатък на стека логва "стек <задача>: най-малко свободно N B". Включва се с `AGRO_STACK_PROBE=1`. Виж: [[stack-hwm|uxTaskGetStackHighWaterMark]], [[task-stack|Размер на стека на задача]].
+apps/executor/main/exec_radio.cpp|418|`HAL_STACK_PROBE();` проба на стека (диагностика, по подразбиране изключена): при нов най-нисък остатък на стека логва "стек <задача>: най-малко свободно N B". Включва се с `AGRO_STACK_PROBE=1`. Виж: [[stack-hwm|uxTaskGetStackHighWaterMark]], [[task-stack|Размер на стека на задача]].
+apps/gateway/main/gw_logic.cpp|338|`HAL_STACK_PROBE();` проба на стека (диагностика, по подразбиране изключена): при нов най-нисък остатък на стека логва "стек <задача>: най-малко свободно N B". Включва се с `AGRO_STACK_PROBE=1`. Виж: [[stack-hwm|uxTaskGetStackHighWaterMark]], [[task-stack|Размер на стека на задача]].
+apps/gateway/main/gw_radio.cpp|242|`HAL_STACK_PROBE();` проба на стека (диагностика, по подразбиране изключена): при нов най-нисък остатък на стека логва "стек <задача>: най-малко свободно N B". Включва се с `AGRO_STACK_PROBE=1`. Виж: [[stack-hwm|uxTaskGetStackHighWaterMark]], [[task-stack|Размер на стека на задача]].
+apps/executor_wifi/main/ew_logic.cpp|163|`HAL_STACK_PROBE();` проба на стека (диагностика, по подразбиране изключена): при нов най-нисък остатък на стека логва "стек <задача>: най-малко свободно N B". Включва се с `AGRO_STACK_PROBE=1`. Виж: [[stack-hwm|uxTaskGetStackHighWaterMark]], [[task-stack|Размер на стека на задача]].
+components/agro_hal/include/agro_hal.h|53|`#ifndef AGRO_STACK_PROBE` ако не е зададен отвън (напр. `-DAGRO_STACK_PROBE=1`)...
+components/agro_hal/include/agro_hal.h|54|...по подразбиране е 0: пробата е изключена и не струва нищо.
+components/agro_hal/include/agro_hal.h|55|край на условието `#ifndef`.
+components/agro_hal/include/agro_hal.h|56|`#if AGRO_STACK_PROBE` - този блок се компилира само при включена проба (условна компилация, [[ifdef|Условна компилация]]).
+components/agro_hal/include/agro_hal.h|57|декларация на `hal_stack_probe`: пази таблица "задача -> най-малко свободен стек" и логва само при нов минимум.
+components/agro_hal/include/agro_hal.h|58|`HAL_STACK_PROBE()` е макрос, който вика `hal_stack_probe()`: така задачите пишат едно и също извикване и в двата режима.
+components/agro_hal/include/agro_hal.h|59|`#else` - пробата е изключена...
+components/agro_hal/include/agro_hal.h|60|...и макросът е празен израз `((void)0)`: компилаторът го изхвърля (нулева цена).
+components/agro_hal/include/agro_hal.h|61|край на условието `#if AGRO_STACK_PROBE`.
+components/agro_hal/hal.cpp|53|`struct IrqCtx { uint8_t pin; TaskHandle_t task; };` контекст на прекъсване: кой пин (GPIO 0..48 се побира в 8 бита) и коя задача да се известява. Полетата на структурите са с най-малкия достатъчен тип. [[struct]]
+components/agro_hal/hal.cpp|55|`static uint8_t s_irqCount = 0;` колко от 4-те места са заети (8 бита стигат).
+components/agro_hal/hal.cpp|112|`#if AGRO_STACK_PROBE` - функцията съществува само при включена проба.
+components/agro_hal/hal.cpp|113|`hal_stack_probe()`: вика се от всяка задача на обиколка; логва само когато свободният стек е по-малък от най-малкия досега.
+components/agro_hal/hal.cpp|114|`tab[8]` - таблица (задача, най-малко свободно): до 8 задачи. `static` = живее през цялото време на програмата.
+components/agro_hal/hal.cpp|115|`portMUX_TYPE mux` - spinlock за критичната секция: таблицата се променя от задачи на двете ядра ([[spinlock|Spinlock и защита между две ядра]]).
+components/agro_hal/hal.cpp|116|`me` - дръжката на извикващата задача.
+components/agro_hal/hal.cpp|117|`uxTaskGetStackHighWaterMark(nullptr)` - най-малкото свободно място на стека на тази задача от старта (в байтове при ESP-IDF). Виж: [[uxTaskGetStackHighWaterMark]].
+components/agro_hal/hal.cpp|118|`report` - дали да се логва (решава се вътре в критичната секция, логът е извън нея: [[isr-forbidden|логовете не са за критични секции]]).
+components/agro_hal/hal.cpp|119|`portENTER_CRITICAL(&mux)` започва критична секция ([[critical-section|Критична секция]]).
+components/agro_hal/hal.cpp|120|търси запис за тази задача (или първия свободен).
+components/agro_hal/hal.cpp|121|намерен е запис на `me` или е свободно място.
+components/agro_hal/hal.cpp|122|ново място: записва задачата и започва от най-голямата стойност (`UINT32_MAX`), за да бъде първото измерване минимум.
+components/agro_hal/hal.cpp|123|ново най-малко -> запомня го и вдига `report`.
+components/agro_hal/hal.cpp|124|`break` - записът е обработен, цикълът свършва.
+components/agro_hal/hal.cpp|127|`portEXIT_CRITICAL(&mux)` - край на критичната секция.
+components/agro_hal/hal.cpp|128|ако е нов минимум, логва го: `pcTaskGetName(nullptr)` е името на задачата ("gw_cmd", "exec_radio"...), `PRIu32` е форматът на `uint32_t`.
+components/agro_hal/hal.cpp|130|край на условието `#if AGRO_STACK_PROBE`.
+components/agro_core/include/json_util.h|85|`uint8_t depth_;` колко възела са на стека (най-много `JSON_MAX_DEPTH` = 8, затова 8 бита стигат).
+components/agro_core/json_util.cpp|63|коментар: възелът `c` вече е закачен към родителя си и се освобождава заедно с дървото в деструктора.
+components/agro_core/json_util.cpp|64|коментар: тук НЕ се трие - иначе би се освободил два пъти (use-after-free).
+components/agro_core/json_util.cpp|65|ако `c` е `nullptr` (неуспешно заделяне) или стекът е пълен (дълбочина >= `JSON_MAX_DEPTH`): маркира неуспех и `return false`. Възелът НЕ се трие тук (притежава го дървото). Виж: [[heap-new|new/delete и malloc/free]].
+components/agro_core/include/protocol.h|79|`static inline bool parseHexByte(s, out)`: строг разбор на команда като 2 hex цифри ("A1"). Заместителят на `(uint8_t)strtol(...)`, който режеше "1A1" до 0xA1 и пропускаше остатъка. [[static]] [[inline]]
+components/agro_core/include/protocol.h|80|`v` натрупва стойността.
+components/agro_core/include/protocol.h|81|точно две цифри: `i = 0` и `i = 1`.
+components/agro_core/include/protocol.h|82|текущият символ.
+components/agro_core/include/protocol.h|83|`d` - стойността на цифрата (0..15).
+components/agro_core/include/protocol.h|84|цифра `0`-`9`: стойност `c - '0'`.
+components/agro_core/include/protocol.h|85|буква `a`-`f`: стойност `c - 'a' + 10`.
+components/agro_core/include/protocol.h|86|буква `A`-`F`: същото за главни.
+components/agro_core/include/protocol.h|87|всичко друго (вкл. край на низа при къс низ) -> `false`.
+components/agro_core/include/protocol.h|88|`v = (v << 4) | d` - предишната цифра минава в старшите 4 бита ([[bit-ops|Побитови операции]]).
+components/agro_core/include/protocol.h|90|третият символ трябва да е краят на низа (`0`): "A1xyz" и "1A1" се отхвърлят.
+components/agro_core/include/protocol.h|91|записва резултата.
+components/agro_core/include/protocol.h|92|`return true` - валиден байт.
+components/agro_radio/include/agro_radio.h|70|`bool radio_rx_pending(void);` дали в чипа чака непрочетен пакет (RxDone). Не започвай CAD/предаване и не сменяй честотата, докато не е прочетен: стартът на CAD и чистенето на флаговете го унищожават.
+components/agro_radio/agro_radio.cpp|122|`bool radio_rx_pending(void) {` проверка за непрочетен пакет. Виж: [[irq-lost-merged|Слепнали, загубени и фалшиви прекъсвания]].
+components/agro_radio/agro_radio.cpp|123|`radio.getIrqFlags() & RADIOLIB_SX126X_IRQ_RX_DONE` - флагът RxDone е вдигнат ([[bitmask|Маски: задаване, изчистване, проверка на бит]]); `!= 0` го превръща в `bool`.
+apps/sensor/main/sensors_io.cpp|24|`uint8_t port;` I2C портът на канала (0 или 1). Полетата са с най-малкия достатъчен тип.
+apps/sensor/main/sensors_io.cpp|25|`uint8_t sda;` GPIO на SDA (0..48).
+apps/sensor/main/sensors_io.cpp|26|`uint8_t scl;` GPIO на SCL (0..48).
+apps/repeater/main/rep_radio.h|59|`uint32_t rep_dedup_hits(void);` колко дубликата са отхвърлени (брояч без знак: не става отрицателен).
+apps/repeater/main/rep_radio.cpp|65|`if (len <= 0) return;` празен или невалиден пакет -> нищо.
+apps/repeater/main/rep_radio.cpp|66|коментар: пакет над границата не минава през repeater-а (сензорен 22 B, heartbeat 14 B).
+apps/repeater/main/rep_radio.cpp|67|коментар: отрязано копие би се препратило като повреден кадър и би хабило ефирно време - затова се изхвърля цял.
+apps/repeater/main/rep_radio.cpp|68|`if (len > DEDUP_MAX_LEN) {` пакетът е по-дълъг от границата (`DEDUP_MAX_LEN` = 32).
+apps/repeater/main/rep_radio.cpp|69|логва причината (дължина и граница); `PRId32` е форматът на `int32_t`.
+apps/repeater/main/rep_radio.cpp|70|`return;` - не се препраща. Преди това пакетът се режеше до 32 B и се препращаше повреден.
+apps/repeater/main/rep_radio.cpp|72|`int32_t i = len;` вече няма отрязване: пакетът е най-много `DEDUP_MAX_LEN` байта.
+apps/repeater/main/rep_radio.cpp|142|`if (radio_rx_pending()) {` в чипа чака непрочетен пакет: CAD или смяната на честотата би го унищожила.
+apps/repeater/main/rep_radio.cpp|143|коментар: rx задачата (по-висок приоритет) вече е събудена от DIO1 и чака mutex-а - щом го освободим, тя прочита пакета.
+apps/repeater/main/rep_radio.cpp|145|`xSemaphoreGive(s_mutex);` освобождава радиото, за да може `rep_rx` да чете. Виж: [[mutex|Mutex]].
+apps/repeater/main/rep_radio.cpp|146|`hal_delay_ms(1);` кратка пауза (задачата отстъпва процесора).
+apps/repeater/main/rep_radio.cpp|147|`continue;` - обратно в началото на цикъла: пак взема mutex-а и проверява.
+apps/executor/main/exec_radio.cpp|104|`if (radio_rx_pending()) return true;` в чипа чака непрочетен пакет: не се пипа радиото (CAD би го унищожил), а каналът се смята за зает. Пакетът се чете при следващото обслужване. Виж: [[irq-lost-merged|Слепнали, загубени и фалшиви прекъсвания]].
+apps/gateway/main/gw_radio.cpp|182|`if (radio_rx_pending()) return true;` в чипа чака непрочетен пакет: не се пипа радиото (CAD би го унищожил), а каналът се смята за зает. Пакетът се чете при следващото обслужване. Виж: [[irq-lost-merged|Слепнали, загубени и фалшиви прекъсвания]].
+apps/gateway/main/gw_radio.h|39|`uint32_t gw_radio_dedup_hits(void);` брояч на отхвърлените дубликати (без знак).
+apps/gateway/main/gw_logic.cpp|187|`uint8_t comByte = 0;` тук ще се запише командата след строг разбор.
+apps/gateway/main/gw_logic.cpp|188|ако нещо липсва или е празно, или `com` не е точно 2 hex цифри (`!parseHexByte(com, &comByte)`)...
+apps/gateway/main/gw_logic.cpp|189|... логва "Bad JSON" и излиза (`return`): команда като "1A1" вече не се превръща мълчаливо в 0xA1.
+apps/gateway/main/gw_logic.cpp|192|`startCommand(m_id, c_id, comByte);` стартира командата с вече проверения байт (преди: `(uint8_t)strtol(com, nullptr, 16)` с каст, който режеше по-големи числа).
+apps/executor_wifi/main/ew_logic.cpp|78|`char c_id[CONSUMER_ID_LEN + 1] = "";` буфер точно за 4 символа + `\0` (както в gateway); по-дълъг идентификатор няма да се побере.
+apps/executor_wifi/main/ew_logic.cpp|80|коментар: C_ID липсва при заявка за състояние; по-дълъг от 4 символа се ОТХВЪРЛЯ.
+apps/executor_wifi/main/ew_logic.cpp|81|коментар: иначе "V0123" би се отрязал до "V012" и би превключил друг консуматор вместо да върне NACK.
+apps/executor_wifi/main/ew_logic.cpp|82|`if (jsonField(...) == JSON_FIELD_TOO_LONG) {` ако C_ID не се побира в буфера (по-дълъг от 4 символа)...
+apps/executor_wifi/main/ew_logic.cpp|83|... логва причината и...
+apps/executor_wifi/main/ew_logic.cpp|84|... `return;` - командата се отхвърля.
+apps/executor_wifi/main/ew_logic.cpp|87|`uint8_t comByte = 0;` тук ще се запише командата след строг разбор.
+apps/executor_wifi/main/ew_logic.cpp|88|ако `com` не е точно 2 hex цифри (`!parseHexByte(...)`)...
+apps/executor_wifi/main/ew_logic.cpp|89|... логва "Bad JSON" ...
+apps/executor_wifi/main/ew_logic.cpp|90|... и излиза.
+apps/executor_wifi/main/ew_logic.cpp|94|`m.com = comByte;` проверената команда (преди: `(uint8_t)strtol(...)` с каст).

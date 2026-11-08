@@ -1,0 +1,170 @@
+1: включва `agro_radio.h`.
+4: `<new>`: стандартният заглавен файл за "placement new" (ред 22, 24, 26), ползван само при хост тестовете.
+5: `board_pins.h`: пиновете и настройките на радиото (`LORA_SCK`, `LORA_TCXO_VOLTAGE`...).
+6: `esp_log.h`: логове ([[esp_log]]).
+7: `agro_hal.h`: `hal_irq_rearm`, `hal_irq_disable`, `hal_millis`, `hal_delay_ms`, `hal_gpio_read`.
+8: `protocol.h`: `LORA_CR_DENOM`, `LORA_PREAMBLE_LEN`, `LORA_SYNC_WORD`.
+9: `radio_timing.h`: `radioTimingInit`, `radioSf`, `radioBw`, `radioCadTimeoutMs`...
+11: `TAG` за логовете.
+13: коментар: раздел за обектите на RadioLib.
+14..15: коментар: `EspHal` е готовият HAL на библиотеката: SPI през `spi_master` (CS се управлява софтуерно от RadioLib), GPIO, закъснения през FreeRTOS (изисква `CONFIG_FREERTOS_HZ=1000`).
+16: `static EspHal s_hal(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SPI_HOST, LORA_SPI_HZ);` създава глобален обект `s_hal` с пиновете и честотата на SPI: това е "хардуерният слой" на RadioLib. `static` -> видим само тук. Конструкторът му се изпълнява при старта на програмата, преди `app_main` ([[global-ctor]]).
+17: `static Module s_module(&s_hal, LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);` `Module` е слоят на RadioLib, който знае пиновете на радиото (CS, DIO1, RST, BUSY) и ползва `s_hal`; `&s_hal` е адресът на HAL обекта.
+18: `SX1262 radio(&s_module);` глобалният обект на радиото; не е `static`, за да е достъпен от другите файлове (`extern` в `.h`). Приложенията викат методите му директно.
+20: `#ifdef AGRO_HOST_TEST`: само за хост тестове.
+21: `void radio_ram_reset(void) {` симулира рестарт: на истински чип RAM се нулира и глобалните обекти се създават наново.
+22: `s_hal.~EspHal();` вика деструктора ръчно: унищожава обекта на място.
+23: `new (&s_hal) EspHal(...)` е "placement new": създава нов обект на същото място в паметта (без заделяне).
+24: същото унищожаване за `s_module`.
+25: ново създаване на `s_module`.
+26: унищожава `radio`.
+27: създава `radio` наново.
+28: затваря функцията.
+29: `#endif`.
+31: `int8_t radio_clamp_tx_power(int32_t dbm)`: ограничава мощност в интервала на модула.
+32: над максимума -> връща максимума. `(int8_t)` е [[cast]].
+33: под минимума -> връща минимума.
+34: иначе връща стойността (като `int8_t`).
+35: затваря.
+37: `bool radio_setup(const RadioParams *p, int32_t maxTries)`: настройва радиото. `p` сочи към параметрите (само за четене).
+38: коментар: времената (CAD, ACK timeout-и) се извеждат от SF/BW, прочетени от NVS.
+39: `radioTimingInit(p->sf, p->bwHz, LORA_CR_DENOM, LORA_PREAMBLE_LEN, true);` запомня параметрите за формулите за време ([[lora-timing]]).
+41: `int8_t power = radio_clamp_tx_power(p->txPowerDbm);` ограничената мощност.
+42: ако е различна от поисканата, логва предупреждение. `PRId32` е форматът на `int32_t` (`%ld` на ESP32, `%d` другаде); `(int32_t)` привежда стойностите към точно този тип.
+44: `ConfigLoRa_t cfg;` структура на RadioLib с настройките на LoRa модема.
+45: `cfg.frequency = (float)p->freqHz / 1.0e6f;` честотата в MHz (RadioLib очаква MHz като `float`): `433000000 / 1e6 = 433.0`.
+46: `cfg.bandwidth = (float)radioBw() / 1000.0f;` ширината в kHz (125.0).
+47: `cfg.spreadingFactor = radioSf();` текущият SF.
+48: `cfg.codingRate = radioCrDenom();` знаменателят 5..8 (4/5..4/8), както иска RadioLib.
+49: `cfg.syncWord = LORA_SYNC_WORD;` 0x12 (частна мрежа).
+50: `cfg.power = power;` мощността.
+51: `cfg.preambleLength = radioPreambleLen();` 8 символа.
+53: `radio.tcxoVoltage = LORA_TCXO_VOLTAGE;` напрежението на TCXO през DIO3.
+54: `radio.useRegulatorLDO = LORA_REGULATOR_LDO_ONLY != 0;` `true` само ако е зададен режим само LDO.
+55: ако са зададени пинове RXEN и TXEN (>= 0), казва на RadioLib да ги ползва за RF превключвателя. При -1 не прави нищо.
+57..59: коментар: на мъртъв или неправилно свързан чип стандартният `begin()` на RadioLib чака до 10 x 1 s, което е непоносимо за sensor на батерия. Затова рестартът е наш, а таймаутът на BUSY е кратък.
+60: `s_module.spiConfig.timeout = RADIO_SPI_BUSY_TIMEOUT_MS;` таймаут на BUSY 100 ms.
+61: `radio.resetOnStartup = false;` RadioLib да не прави свой reset в `begin()` (ние го правим).
+63: `uint32_t lastMsg = 0;` кога е последното съобщение за грешка.
+64: `bool first = true;` първото съобщение се показва веднага.
+65: `for (int32_t attempt = 1;; attempt++) {` безкраен цикъл с брояч на опитите; излиза се с `break` или `return`. Празният среден израз значи "винаги истина".
+66: `radio.reset(false);` импулс на RST; `false` = без чакане за standby.
+67: `int32_t st = radio.begin(cfg);` инициализира чипа; `st` е код за грешка на RadioLib.
+68: `RADIOLIB_ERR_NONE` значи успех: `break` излиза от цикъла.
+69: ако има лимит на опитите и е достигнат ...
+70: ... логва грешка ...
+71: ... и `return false`.
+72: затваря `if`.
+73: ако е първият неуспех или са минали 10 s от последното съобщение (`hal_millis() - lastMsg` е разлика без знак: коректна и при пренасяне) ...
+74: ... логва ...
+75: ... запомня момента ...
+76: ... `first = false`.
+77: затваря `if`.
+78: `hal_delay_ms(RADIO_BEGIN_RETRY_PAUSE_MS);` пауза 200 ms: задачата отстъпва процесора.
+79: затваря цикъла.
+81: коментар: RadioLib оставя OCP на 60 mA, твърде малко над ~+14 dBm; Semtech задава 140 mA.
+82: `radio.setCurrentLimit(LORA_CURRENT_LIMIT_MA)`; при грешка предупреждение.
+83: ако платката не ползва DIO2 за RF превключвател, го изключва (`begin()` го включва по подразбиране).
+84: логва настройките: честота, SF, BW, CR, sync word, мощност.
+85: коментар: не се ползва `%f`, защото "nano printf" на ESP-IDF не печата float; затова числата са цели.
+86: `return true;`
+87: затваря.
+89: `bool radio_set_frequency(uint32_t hz)`.
+90: `int32_t st = radio.standby();` честотата се сменя само в standby.
+91: ако е успешно, `radio.setFrequency(MHz)`.
+92: при грешка логва.
+93: връща дали е успешно.
+94: затваря.
+96: `bool radio_listen(void)`.
+97: `radio.startReceive();` непрекъснат прием (RX continuous): чипът остава в RX и след пакет.
+98: `hal_irq_rearm(LORA_DIO1);` включва пак прекъсването: `startReceive` изчиства флаговете, DIO1 е ниско.
+99: при грешка логва.
+100: връща дали е успешно.
+101: затваря.
+103: `int32_t radio_read_packet(uint8_t *buf, size_t cap)`: връща дължина, `RADIO_RX_NONE` или `RADIO_RX_CRC_ERROR`.
+104: `radio.getIrqFlags()`: прочита флаговете на чипа (какво се е случило).
+105: ако не е вдигнат бит `RX_DONE` (`&` е побитово "и", [[bit-ops]]) -> няма пакет.
+107: `radio.getPacketLength()`: дължината на получения пакет.
+108: нулева дължина ...
+109: ... изчиства всички флагове (DIO1 трябва да падне, иначе прекъсването се повтаря) ...
+110: ... и връща "няма".
+111: затваря.
+112: `radio.readData(buf, len < cap ? len : cap);` чете най-много `cap` байта (по-дълъг пакет се отрязва) и изчиства флаговете.
+113: лош CRC -> `RADIO_RX_CRC_ERROR`.
+114: друга грешка ...
+115: ... лог ...
+116: ... изчиства флаговете ...
+117: ... `RADIO_RX_NONE`.
+118: затваря.
+119: `return (int32_t)len;` истинската дължина (може да е по-голяма от `cap`).
+120: затваря.
+126: `bool radio_transmit(const uint8_t *buf, size_t len)`.
+127: невалидни параметри (`nullptr`, 0 байта или над 255) -> `false`.
+128: `hal_irq_disable(LORA_DIO1);` изключва прекъсването: TX_DONE вдига DIO1, а края на предаването го следим сами.
+129..130: коментар: параметрите на пакета се пишат само в standby; `startTransmit()` не го прави сам.
+131: `radio.standby();`
+132: ако е ОК, `radio.startTransmit(buf, len)` започва излъчването и връща веднага.
+133: `bool ok = false;`
+134: ако започна успешно ...
+135: коментар: RadioLib няма таймаут на чакането; сроковете се извеждат от времето във въздуха.
+136: `toaMs` = `radio.getTimeOnAir(len)` (µs) заокръглено нагоре до ms.
+137: `start` = сега.
+138: `deadline = toaMs + toaMs / 4 + 100`: срок: ToA + 25 % + 100 ms.
+139: ако ToA > 2 ms, заспива за `toaMs - 1` ms: чипът излъчва сам, не заемаме шината и процесора с въпроси.
+140: `for (;;) {` проверява периодично.
+141: `irq` = флагове.
+142: `TX_DONE` -> `ok = true`, излиза.
+143: `TIMEOUT` на чипа -> излиза с `ok = false`.
+144: надхвърлен срок -> излиза.
+145: `hal_delay_ms(1);` чака 1 ms, процесорът е свободен.
+146: затваря цикъла.
+147: ако не е успешно, логва колко време е чакало.
+148: `} else {` ако `startTransmit` е неуспешен ...
+149: ... логва.
+150: затваря.
+151: `radio.finishTransmit();` изчиства флаговете и връща чипа в standby (и прекъсва зациклило предаване).
+152: при грешка предупреждение.
+153: `return ok;`
+154: затваря.
+156: коментар: превръща `RADIO_CAD_SYMBOLS` в константата на RadioLib.
+157: `static uint8_t cadSymbolConst()`.
+158: `switch (RADIO_CAD_SYMBOLS) {` избира по стойността на макроса (константа по време на компилация).
+159: 1 символ.
+160: 2 символа.
+161: 4 символа.
+162: 8 символа.
+163: `default:` всичко друго = 16 символа.
+164: затваря `switch`.
+165: затваря.
+167: `bool channelActive(void)`: CAD. `true` = зает. ([[cad]])
+168: `hal_irq_disable(LORA_DIO1);` CAD вдига DIO1 (CadDone), не искаме да буди задачата.
+169..170: коментар: `standby` + DIO1 = CadDone|CadDetected + `SetCad`. Праговете `detPeak` и `detMin` и режимът на излизане са по подразбиране на RadioLib (препоръките на Semtech за SF).
+171: `ChannelScanConfig_t scan = {};` нулирана структура с настройките на сканирането.
+172: `scan.cad.symNum = cadSymbolConst();` колко символа да сканира.
+173: `detPeak` по подразбиране.
+174: `detMin` по подразбиране.
+175: `exitMode` по подразбиране (обратно в standby).
+176: `timeout = 0`: без таймаут на чипа.
+177: `irqFlags` по подразбиране.
+178: `irqMask` по подразбиране.
+179: `radio.startChannelScan(scan);` стартира CAD и връща веднага.
+180: при грешка ...
+181: ... лог: канал се счита за свободен ...
+182: ... `radio.standby();` ...
+183: ... `return false;` (не блокираме трафика заради неработещ CAD).
+184: затваря.
+185: `start` = сега.
+186: `timeoutMs = radioCadTimeoutMs();` горната граница за CAD.
+187: `bool done = false;`
+188: `while (!(done = hal_gpio_read(LORA_DIO1)))`: присвоява прочетеното ниво на DIO1 в `done` и продължава, докато то е ниско. HIGH на DIO1 значи, че CAD е свършил (CadDone).
+189: ако е минал таймаутът -> `break`.
+190: `hal_delay_ms(1);` процесорът спи между проверките (CAD е от няколко до стотици ms според SF/BW).
+191: затваря цикъла.
+192: `radio.getChannelScanResult();` чете резултата: `RADIOLIB_LORA_DETECTED` или `CHANNEL_FREE`.
+193: изчиства флаговете.
+194: ако CAD не е приключил (`!done`) ...
+195: ... лог ...
+196: ... `standby` (прекъсва CAD).
+197: затваря.
+198: `return r == RADIOLIB_LORA_DETECTED;` `true` само ако е открита LoRa активност.
+199: затваря.

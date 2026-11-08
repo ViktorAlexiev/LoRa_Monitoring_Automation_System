@@ -1,0 +1,303 @@
+1: включва `gw_logic.h`.
+4: `<stdio.h>`: `snprintf`.
+5: `<stdlib.h>`: `strtol`.
+6: `<string.h>`.
+7: `ceiling_counter.h`.
+8: `crypto_common.h`.
+9: `esp_log.h`.
+10: `agro_hal.h`.
+11: `json_util.h`: `JsonDoc`, `JsonOut`.
+12: `mqtt_link.h`: `mqtt_link_publish`.
+13: `protocol.h`.
+14: `radio_timing.h`: ACK timeout-и.
+15: `esp_task_wdt.h`.
+17: `TAG`.
+19: `s_cfg`: конфигурацията.
+20: `s_gwInQ`, `s_radioInQ`: двете опашки (`gw_logic` ЧЕТЕ от `gwInQ` и ПИШЕ в `radioInQ`).
+21: `s_radioTask`: за известяване.
+23: коментар: НЕ е thread-safe по дизайн: всичко (освен `gw_mqtt_on_message`) се вика само от задачата `gw_cmd`.
+24: `static CeilingCounter s_cmdCounter;` ЕДИН общ брояч за командите към ВСИЧКИ executor-и; `type-id` разграничава потоците ([[ceiling]]).
+25: `s_counterReady`.
+27: коментар: команда "в полет" (изпратена, чака ACK).
+28: `s_cmdPending`: има ли такава.
+29: `s_pM[7], s_pC[5]`: M_ID на executor-а и C_ID на консуматора (`p` = pending).
+30: `s_pCom`: кодът на командата.
+31: `s_pSentAt`: кога е изпратена (последният опит).
+32: `s_pRetries`: брой повторения.
+34: коментар: state request "в полет".
+35: `s_stateReqPending`.
+36: `s_sM[7]`: M_ID на целта.
+37: `s_sSentAt`.
+38: `s_sRetries`.
+40: `s_lastHb`: кога е последният heartbeat на gateway.
+42: `gw_logic_reset(cfg, gwInQ, radioInQ)`.
+43: `s_cfg = cfg;`
+44: `s_gwInQ = gwInQ;`
+45: `s_radioInQ = radioInQ;`
+46: `s_radioTask = nullptr;`
+47: `s_counterReady = false;`
+48: `s_cmdPending = s_stateReqPending = false;` верижно присвояване.
+49: `s_pRetries = s_sRetries = 0;`
+50: `s_lastHb = hal_millis();`
+51: затваря.
+52: setter.
+53: getter.
+54: getter.
+56: `reached(now, t)` ([[wraparound]]).
+58: коментар: MQTT изход.
+59..60: коментар: печата JSON дървото в буфера на извикващия и го публикува. Неуспех (няма памет за дървото или не се побира) се логва и нищо не се публикува: никога отрязан или повреден JSON.
+61: `static void publish(const char *topic, JsonOut &w, char *buf, size_t cap, int32_t qos)`: `w` е референция към строителя на JSON ([[reference]]).
+62: `size_t len = 0;` ще получи дължината.
+63: `!w.print(buf, cap, &len)` -> JSON не е построен или не се побира -> лог и `return`.
+64: `mqtt_link_publish(topic, buf, len, qos, false)`: публикува без retain ...
+65: ... при неуспех: предупреждение (няма връзка или отказ).
+66: затваря.
+67: затваря.
+69: `static void publishCommandStatus(m_id, c_id, com, status)`: публикува статуса на команда.
+70: `char buf[160];` буфер за JSON-а.
+71: `JsonOut w;` строител ([[raii]]: сам освобождава паметта).
+72: `char comHex[3];` два hex символа и нула.
+73: `snprintf(comHex, ..., "%02X", com)`: кодът на командата като два главни hex символа (напр. `A1`).
+74: `w.beginObject().str("M_ID", m_id).str("C_ID", c_id).str("com", comHex).num("status", status).endObject();` верижно построява `{"M_ID":..., "C_ID":..., "com":"A1", "status":0}` ([[chaining]]).
+75: `publish(TOPIC_COMMANDS_STATUS, w, buf, sizeof(buf), 1);` QoS 1: статусът не бива да се губи при кратко прекъсване.
+76: лог.
+77: затваря.
+79: `static void putRaw(JsonOut &w, const char *key, int16_t raw)`: добавя сурова стойност на сензор.
+80: ако е `SENSOR_RAW_NODATA`: записва `-32768` като цяло число (без деление на 100).
+81: иначе `w.fixed2(key, raw)`: стотни като число с два знака (2257 -> 22.57).
+82: затваря.
+84: коментар: радио изход.
+85: `static bool enqueueTx(const uint8_t *buf, uint8_t len)`: слага пакет в опашката към радиото.
+86: `TxReq r;`
+87: `r.len = len;`
+88: копира байтовете.
+89: ако опашката е пълна ...
+90: ... лог ...
+91: ... `return false`.
+92: затваря.
+93: ако има дръжка на радио задачата, я буди (`xTaskNotifyGive`) ([[notify]]).
+94: `return true;`
+95: затваря.
+97: `static bool nextCounter(uint32_t *c)`: следваща стойност на брояча.
+98: ако не е готов: `begin("cmdceil")`.
+99: `return s_cmdCounter.next(c);`
+100: затваря.
+102: коментар: команда (криптирана): `[target M_ID, чисто] + [wire: GATEWAY_ID(sender) + ciphertext(C_ID+com+status) + counter + tag]`.
+103: `static void sendCommandPacket()`.
+104: `plaintext[6]`.
+105: копира C_ID.
+106: `plaintext[4] = s_pCom;`
+107: `plaintext[5] = 0xFF;` статусът не се ползва при команда (запълнено с 0xFF).
+109: `ctr`.
+110: ако брояч неуспешен -> `return` (не излъчва).
+111: `wire[26]`.
+112: `memset(wire, 0, MODULE_ID_LEN);` нулира първите 6 B (мястото за target).
+113: копира target M_ID (най-много 6 символа); executor-ът филтрира по това ПРЕДИ decrypt.
+114: `cryptoBuildWirePacket(wire + 6, key, CRYPTO_TYPE_GW_CMD, gateway ID, ctr, plaintext, 6)`: строи пакета след целта.
+115: (продължение на аргументите).
+116: ако е построен, праща го в опашката: дължина `6 + n`.
+117: затваря.
+119: коментар: state request: `[target M_ID, чисто] + [wire: GATEWAY_ID + ciphertext(0) + counter + tag]`.
+120: `static void sendStateRequestPacket()`.
+121: `ctr`.
+122: брояч.
+123: `wire[20]`.
+124: нулира target мястото.
+125: копира целта (`s_sM`).
+126: строи с тип `STATE_REQ`, без plaintext (`NULL, 0`).
+127: праща в опашката.
+128: затваря.
+130: коментар: state-resp ACK (само за RESTART варианта).
+131: `static void sendStateRespAck(const char *target6)`.
+132: `ctr`.
+133: брояч.
+134: `wire[20]`.
+135: нулира.
+136: копира целта.
+137: строи с тип `STATE_RESP_ACK`.
+138: ако е построен и приет в опашката, лог.
+139: затваря.
+141: `static void startCommand(m_id, c_id, com)`: започва нова команда "в полет".
+142: нулира `s_pM`.
+143: нулира `s_pC`.
+144: `strncpy(s_pM, m_id, 6)`: копира най-много 6 символа.
+145: `strncpy(s_pC, c_id, 4)`.
+146: `s_pCom = com;`
+147: `s_pSentAt = now`.
+148: `s_pRetries = 0`.
+149: `s_cmdPending = true`.
+150: `sendCommandPacket();` първият опит.
+151: лог.
+152: затваря.
+154: `static void startStateRequest(const char *m_id)`.
+155: нулира `s_sM`.
+156: копира целта.
+157: `s_sSentAt = now`.
+158: `s_sRetries = 0`.
+159: `s_stateReqPending = true`.
+160: изпраща.
+161: лог.
+162: затваря.
+164: коментар: MQTT вход.
+165: `void gw_mqtt_on_message(topic, data, len, void *)`: колбекът на esp-mqtt; изпълнява се в задачата на esp-mqtt и само слага в опашка.
+166: `GwMsg m;`
+167: нулира.
+168: ако темата е `commands` -> `GM_MQTT_CMD`.
+169: `else if` темата е `module_states_requests` -> `GM_MQTT_STATE_REQ`.
+170: `else return;` друга тема -> игнорира.
+171: ако payload надхвърля 159 B -> лог и `return`.
+172: копира payload в съобщението.
+173: `payloadLen`.
+174: слага в `gwInQ`; ако е пълна, лог.
+175: затваря.
+177: `static void handleMqttCommand(const GwMsg &m)`: обработва команда от бекенда.
+178: ако вече има команда в полет ...
+179: ... предупреждение ...
+180: ... `return` (нова се игнорира).
+181: затваря.
+182: `m_id[7], c_id[5], com[8]` буфери.
+183: `JsonDoc doc(m.payload, m.payloadLen);` разбира JSON-а (валиден само ако е точно един обект).
+184: `okM`: чете `M_ID`.
+185: `okC`: чете `C_ID`.
+186: `okCom`: чете `com`.
+187: ако нещо липсва или е празно ...
+188: ... лог ...
+190: ... `return`.
+191: затваря.
+192: `startCommand(m_id, c_id, (uint8_t)strtol(com, nullptr, 16));` превръща hex низа на командата (напр. "A1") в число (основа 16) и стартира командата.
+193: затваря.
+195: `static void handleMqttStateReq(const GwMsg &m)`.
+196: ако вече има state request ...
+197: ... предупреждение ...
+198: ... `return`.
+199: затваря.
+200: `m_id[7]`.
+201: `JsonDoc doc(...)`.
+202: ако `M_ID` липсва -> лог и `return`.
+203: празно `M_ID` -> `return`.
+204: `startStateRequest(m_id);`
+205: затваря.
+207: коментар: радио събития -> MQTT.
+208: `static void handleSensor(const GwMsg &m)`: публикува данни от сензор.
+209: `char buf[256];`
+210: `JsonOut w;`
+211: `w.beginObject().str("id", m.id);` започва обекта с ID на сензора.
+212: `putRaw(w, "soil_t", m.v[0]);` температура на почвата.
+213: `soil_h`.
+214: `air_t`.
+215: `air_h`.
+216: добавя `battery_mv` в JSON-а на сензорния пакет; -32768 означава "пакетът е без батерия или няма измерване".
+217: `w.num("rssi", m.rssi).fixed2("snr", m.snrX100).unum("ts", m.tsSec).endObject();` добавя RSSI, SNR (два знака) и време, затваря обекта.
+218: `publish(TOPIC_SENSORS, w, buf, sizeof(buf), 0);` QoS 0: загуба на едно показание не е проблем; стари показания са по-лоши.
+219: затваря.
+221: `static void handleAck(const GwMsg &m)`: ACK от executor.
+222: ако има команда в полет И M_ID съвпада (`strncmp` 6 символа) И C_ID съвпада (`memcmp` 4 байта) И командата съвпада ...
+223: ... `status = (m.status == 0) ? ACK : NACK` ...
+224: ... публикува статуса ...
+225: ... `s_cmdPending = false`: командата е завършена.
+226: затваря. ACK, който не съвпада, се игнорира.
+227: затваря.
+229: `static void handleHeartbeat(const GwMsg &m)`.
+230: `buf[128]`.
+231: `JsonOut w;`
+232: започва обекта с ID.
+233: при heartbeat на repeater добавя RSSI и SNR.
+234: добавя `battery_mv` в JSON-а на heartbeat; -32768 за стария heartbeat (14 B) от AVR модулите.
+235: добавя `ts` и затваря.
+236: публикува (QoS 0).
+237: лог.
+238: затваря.
+240..241: коментар: в MQTT двата варианта (нормален и RESTART) изглеждат еднакво, освен `"restart":true`; RESTART вариантът получава ACK обратно по радиото и не е задължително отговор на изрична заявка.
+242: `static void handleState(const GwMsg &m)`.
+243: `entries = stateLen / 5`: броят консуматори.
+244: `char buf[1024];` голям буфер (до 10 консуматора).
+245: `JsonOut w;`
+246: започва обекта с ID.
+247: при restart добавя `"restart": true`; при нормален отговор ключът се пропуска.
+248: `w.beginArray("states");` започва масив.
+249: цикъл по консуматорите.
+250: `off = i * 5`.
+251: `c_id[5] = {0}`.
+252: копира C_ID.
+253: добавя елемент `{"id": ..., "state": "ON"/"OFF"}`.
+254: затваря цикъла.
+255: `w.endArray().endObject();` затваря масива и обекта.
+256: публикува (QoS 1).
+258: ако е restart: праща ACK по радиото към executor-а (`sendStateRespAck`).
+259: `else if` иначе ако чакаме state request и е от същото устройство: `s_stateReqPending = false`.
+261: лог.
+262: затваря.
+264: `void gw_logic_handle(const GwMsg &m)`: разпределя по тип.
+265: `switch (m.type) {`
+266: `GM_SENSOR` -> `handleSensor`.
+267: `GM_ACK` -> `handleAck`.
+268: `GM_HB_REPEATER:` (пропада към следващия `case`, няма `break`) ...
+269: `GM_HB_EXEC` -> `handleHeartbeat`.
+270: `GM_STATE` -> `handleState`.
+271: `GM_MQTT_CMD` -> `handleMqttCommand`.
+272: `GM_MQTT_STATE_REQ` -> `handleMqttStateReq`.
+273: `default:` непознат -> нищо.
+274: затваря `switch`.
+275: затваря.
+277: коментар: таймаути, повторения, heartbeat.
+278: `void gw_logic_tick(void)`.
+279: `now`.
+281: ако има команда в полет и е изтекъл ACK timeout (`radioAckTimeoutCmdMs()`) ...
+282: ... ако има още повторения ...
+283: ... `s_pRetries++` ...
+284: ... `s_pSentAt = now` ...
+285: ... праща пак ...
+286: ... лог.
+287: `} else {` повторенията свършиха ...
+288: ... публикува статус `TIMEOUT` ...
+289: ... `s_cmdPending = false`.
+290: затваря.
+291: затваря.
+293: същото за state request ...
+294: ... ако има повторения ...
+295: ... `s_sRetries++` ...
+296: ... `s_sSentAt = now` ...
+297: ... праща пак ...
+298: ... лог.
+299: `} else {` ...
+300: ... `buf[96]` ...
+301: ... `JsonOut w;` ...
+302: ... `{"id": ..., "status": "timeout"}` ...
+303: ... публикува (QoS 1) ...
+304: ... `s_stateReqPending = false` ...
+305: ... лог.
+306: затваря.
+307: затваря.
+309: ако са минали 30 s от последния heartbeat на gateway ...
+310: ... `s_lastHb = now` ...
+311: ... и има MQTT връзка ...
+312: ... `buf[96]` ...
+313: ... `JsonOut w;` ...
+314: ... `{"id": gateway ID, "ts": секунди}` ...
+315: ... публикува (QoS 0) ...
+316: ... лог.
+317: затваря.
+318: затваря.
+319: затваря функцията.
+321: `uint32_t gw_logic_next_wait_ms(void)`: колко да чака задачата до следващия срок.
+322: `now`.
+323: `best = GW_LOGIC_MAX_WAIT_MS` (5000).
+324: `auto consider = [&](uint32_t at) {` ламбда: избира най-близкия срок ([[lambda]]).
+325: `d` = ms до `at`.
+326: ако е по-малко от `best`, го запомня.
+327: затваря.
+328: ако има команда в полет: срокът е `sentAt + ACK timeout`.
+329: ако има state request: срокът му.
+330: срокът на следващия heartbeat.
+331: `return best;`
+332: затваря.
+334: `void gw_logic_task(void *)`: тялото на `gw_cmd`.
+335: `GwMsg m;` място за съобщението.
+336: `esp_task_wdt_add(nullptr);` абонира задачата за watchdog ([[watchdog]]).
+337: `for (;;) {`
+339: `w = gw_logic_next_wait_ms();`
+340: `xQueueReceive(s_gwInQ, &m, pdMS_TO_TICKS(w)) == pdTRUE`: блокира до `w` ms за съобщение; ако е дошло, `gw_logic_handle(m)` ([[queue]]).
+341: `gw_logic_tick();` проверява срокове (всеки път, независимо дали е дошло съобщение).
+342: `esp_task_wdt_reset();` "храни" watchdog-а.
+343: затваря цикъла.
+344: затваря.

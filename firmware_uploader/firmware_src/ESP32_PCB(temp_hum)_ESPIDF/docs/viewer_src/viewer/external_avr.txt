@@ -1,0 +1,83 @@
+## millis | millis(): милисекунди от старта | Външни: Arduino и AVR
+Връща `uint32_t` милисекунди от включването, броени от Timer0. Прехвърля се след ~49.7 дни. Разликата `millis() - start` е вярна и при прехвърляне, ако се смята в `uint32_t`. НЕ напредва в дълбок сън ([[avr-sleep]]).
+
+## micros | micros(): микросекунди от старта | Външни: Arduino и AVR
+Като `millis()`, но в микросекунди (при 8 MHz стъпката е 8 µs). Прехвърля се на ~71 минути. В проекта се смесва в seed-а на `random()`.
+
+## delay | delay(ms): блокираща пауза | Външни: Arduino и AVR
+Върти процесора за `ms` милисекунди. Допустимо само когато няма друга работа ([[avr-delay]]).
+
+## random | random(max): псевдослучайно число | Външни: Arduino и AVR
+`random(max)` връща число от 0 до max-1, `random(min, max)` от min до max-1. Резултатът зависи от seed-а ([[randomSeed]]); без различен seed всички устройства дават една и съща редица ([[jitter]]).
+
+## randomSeed | randomSeed(seed): началната стойност на random() | Външни: Arduino и AVR
+Задава началото на редицата. В проекта seed-ът е хеш на ID, брояча на nonce и `micros()` (`rng_seed.h`).
+
+## pinMode | pinMode(pin, режим): посока на пин | Външни: Arduino и AVR
+Настройва пина като `INPUT`, `OUTPUT` или `INPUT_PULLUP` ([[gpio]]).
+
+## digitalWrite | digitalWrite(pin, HIGH/LOW): изход | Външни: Arduino и AVR
+Задава нивото на изходен пин (HIGH = Vcc, LOW = маса). Така executor-ът включва реле.
+
+## digitalRead | digitalRead(pin): четене на ниво | Външни: Arduino и AVR
+Връща `HIGH` или `LOW`. За изходен пин връща последно записаното ниво; executor-ът така отчита състоянието на консуматор.
+
+## Serial | Serial: сериен порт (UART) | Външни: Arduino и AVR
+`Serial.begin(baud)`, `print`, `println`, `flush`, `available`, `read`. В проекта е само за дебъг и за config програмата ([[uart]]). TX буферът е 64 байта; при пълен буфер `print` блокира.
+
+## EEPROM | EEPROM: вградената енергонезависима памет | Външни: Arduino и AVR
+Обект с `read`, `get`, `put`, `update` ([[avr-eeprom]]).
+
+## LoRa | LoRa: обектът на библиотеката arduino-LoRa | Външни: Arduino и AVR
+Методите `begin`, `beginPacket`, `write`, `endPacket`, `parsePacket`, `receive`, `sleep`, `idle`, `setFrequency` и др. ([[lora-lib]]).
+
+## Wire | Wire: I2C библиотеката | Външни: Arduino и AVR
+`Wire.begin()`, `beginTransmission(addr)`, `write`, `endTransmission()` (0 = успех), `requestFrom(addr, n)`, `available`, `read`, `end()` ([[i2c]]). Работи върху хардуерния модул TWI.
+
+## SPI | SPI: SPI шината | Външни: Arduino и AVR
+Библиотеката `SPI.h`; `LoRa` я ползва за достъп до радиото ([[spi]]).
+
+## ISR | ISR(вектор): обработчик на прекъсване | Външни: Arduino и AVR
+Макрос от `<avr/interrupt.h>`, виж [[avr-isr]].
+
+## cli | cli(): забрани прекъсванията | Външни: Arduino и AVR
+Изчиства глобалния флаг I. Двойката е `sei()`. Виж [[avr-atomic]].
+
+## sei | sei(): разреши прекъсванията | Външни: Arduino и AVR
+Вдига флага I. Инструкцията след `sei()` се изпълнява преди което и да е чакащо прекъсване ([[avr-sleep]]).
+
+## set_sleep_mode | set_sleep_mode(режим): избор на режима на сън | Външни: Arduino и AVR
+Избира режима, напр. `SLEEP_MODE_PWR_DOWN` ([[avr-sleep]]).
+
+## sleep_enable | sleep_enable(): разрешава заспиване | Външни: Arduino и AVR
+Вдига бита SE; без него `sleep_cpu()` не заспива.
+
+## sleep_cpu | sleep_cpu(): заспива | Външни: Arduino и AVR
+Изпълнява инструкцията `SLEEP`. Връща се след събуждане.
+
+## sleep_disable | sleep_disable(): сваля бита SE | Външни: Arduino и AVR
+Вика се след събуждане, за да не заспи чипът случайно.
+
+## sleep_bod_disable | sleep_bod_disable(): изключва BOD за съня | Външни: Arduino и AVR
+Виж [[avr-bod]]. Вика се непосредствено преди `sleep_cpu()`.
+
+## wdt_disable | wdt_disable(): спира watchdog-а | Външни: Arduino и AVR
+Изключва таймера след края на съня ([[avr-wdt]]).
+
+## power_adc_disable | power_*_disable(): спира модул чрез PRR | Външни: Arduino и AVR
+Семейство макроси (`power_adc_`, `power_usart0_`, `power_spi_`, `power_twi_`, `power_timer1_`, `power_timer2_` с `disable`/`enable`) за регистъра PRR ([[avr-prr]]).
+
+## ATOMIC_BLOCK | ATOMIC_BLOCK(режим): атомарен блок | Външни: Arduino и AVR
+От `<util/atomic.h>`: вътре прекъсванията са забранени; `ATOMIC_RESTORESTATE` връща предишното им състояние ([[avr-atomic]]).
+
+## strtoul | strtoul(s, end, основа): низ към unsigned long | Външни: стандартни типове и libc
+Разчита десетично или друго число. На AVR `unsigned long` е 32 бита.
+
+## atoi | atoi(s): низ към int | Външни: стандартни типове и libc
+Връща `int` (16 бита на AVR). Не открива грешка.
+
+## strstr | strstr(s, шаблон): търси подниз | Външни: стандартни типове и libc
+Връща указател към първото срещане или `NULL`.
+
+## strchr | strchr(s, c): търси символ | Външни: стандартни типове и libc
+Връща указател към първото срещане на `c` или `NULL`.

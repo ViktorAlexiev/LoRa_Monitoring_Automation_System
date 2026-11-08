@@ -444,6 +444,51 @@ Failsafe (изключване при загуба на връзка) — още
 за `wifi` в `wifi_commands`, за `lora` в `commands`; TIMEOUT за Wi-Fi; `health_checker.py` без радио проверки
 за Wi-Fi модулите.
 
+## 22. Нативни тестове за ESP32_PCB(temp_hum); поправен `retain` на всички MQTT съобщения на gateway-я; `config_esp32` отхвърля невалиден ключ
+
+**Статус:** приложено. Нов набор `tests/native/esp32` (виж `tests/README.md`): `./run_esp32.sh` — всички минават;
+`./mutation_check.sh` — всички умишлени грешки се улавят. Не е пробвано на хардуер.
+
+**Находка (реална грешка, съществувала и в `LoRa_radio_node+TTGO`):** `publishJson()` в `gateway/wifi_mqtt.cpp`
+викаше `mqttClient.publish(topic, buf, n)` с `char buf[512]` и `size_t n`. При тези типове C++ избира
+`publish(const char*, const char*, boolean retained)` и `n` става `retained = true` — т.е. **всяко съобщение на
+gateway-я (sensors, heartbeat, commands_status, module_states_response) се е запазвало (retain) в брокера** и се е
+доставяло като „ново“ на всеки нов абонат (напр. при рестарт на бекенда — стари ACK/състояния/показания).
+Поправено в двата gateway-а: `publish(topic, (const uint8_t*)buf, n, false)`. Тест: `test_no_gateway_message_is_ever_retained`.
+(`executor_wifi` публикува със същия изричен каст и retain=false — само Last Will е retained.)
+
+**`config_esp32.ino`:** невалиден `key` (грешна дължина или не-hex) вече води до `NACK:невалиден key`, вместо
+да се игнорира тихо с `ACK` (устройството би останало без ключ, а Uploader-ът би счел конфигурацията за успешна).
+
+**Други промени по тестовете:** `tests/native/run_all.sh` и `syntax_check_radio.sh` сочат към
+`firmware_src/LoRa_radio_node+TTGO` (преди — към несъществуващия `firmware_src/sensor|executor|...`);
+`test_length_dispatch.cpp` е на 22-байтов sensor пакет.
+
+**Документирани (не променени) поведения, видими от тестовете:**
+- Executor и repeater не пазят от повторно възпроизвеждане (replay) на валиден пакет — прието ограничение (виж по-долу).
+- Repeater препраща всичко чуто на RX лентата, без проверка на MAC/формат (боклук на лентата отнема ефирно време).
+- Repeater буферът е 32 B: по-дълъг пакет се отрязва.
+- Gateway приема команда, само ако предишната е приключила (ACK/NACK/TIMEOUT); бекендът държи опашката.
+
+## 23. Нова прошивка `ESP32_PCB(temp_hum)_ESPIDF` - ESP-IDF/FreeRTOS за ESP32-S3 (задачи по ядра, esp-mqtt, mbedtls, собствен SX127x драйвер)
+
+**Статус:** написана и тествана **само в симулатор**; **не е компилирана с реален ESP-IDF и не е пробвана на хардуер**.
+Виж `firmware_src/ESP32_PCB(temp_hum)_ESPIDF/README.md` (карта на задачите, разлики, чеклист за bench теста).
+
+* Задачи: gateway - радио на ядро 1 (приоритет 10), логика+MQTT на ядро 0, watchdog; Wi-Fi executor - MQTT на ядро 0,
+  изпълнение на ядро 1; executor/repeater - автоматичен лек сън (tickless idle + PM, събуждане от DIO0), без ръчно
+  `esp_light_sleep_start`; sensor - линеен + дълбок сън.
+* Wire форматът и MQTT темите/JSON са **същите** (доказано диференциално срещу старите прошивки, `run_compat.sh`);
+  ESP-IDF и Arduino устройства могат да са в една мрежа.
+* Подобрения, намерени при тестовете: целият CFG ред трябва да е валиден JSON (отрязан ред се приемаше частично);
+  RH се ограничава до 0..100 % (малко отрицателна стойност при сух въздух не е грешка на четене); провал на запис на
+  nonce ceiling = не се излъчва; sensor не зацикля при мъртво радио.
+* **Системната симулация** (`run_system.sh`: всички устройства като отделни процеси в общ ефир) намери два проблема, общи за
+  дизайна (и на Arduino версията), поправени в ESP-IDF версията БЕЗ промяна на wire формата: (1) два repeater-а, препращащи един
+  и същ кадър, предаваха един върху друг (политика FORCE) - нова политика `PERSIST` (изчаква паузата) за sensor и препращане;
+  (2) устройства, пуснати едновременно, имаха синхронни heartbeat-и (колизии/пропуски) - първият heartbeat е на случайна фаза.
+* Тестове: `tests/native/espidf` (`run_espidf.sh`, `run_compat.sh`, `run_system.sh`, `mutation_check.py`) - виж `tests/README.md`.
+
 ## Тестове и проверки (по този етап)
 
 `firmware_uploader/tests/`: native C++ (`run_all.sh`) — crypto, ceiling, queues, consumers,

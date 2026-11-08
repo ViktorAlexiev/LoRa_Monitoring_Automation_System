@@ -1,0 +1,47 @@
+1..8: коментар: `executor_wifi` е изпълнителен модул, който приема команди директно по MQTT (Wi-Fi), без LoRa. Захранва се постоянно, затова няма сън. Ядро 0: Wi-Fi стек и esp-mqtt (автоматично повторно свързване, абониране с QoS 1 при всяко свързване). Ядро 1: `ew_exec` (приоритет 5): изпълнение на командите и отговорите. Опашка (8) между тях.
+9: `consumers.h`.
+11: `esp_log.h`.
+12: `ew_config.h`.
+13: `ew_logic.h`.
+14: `agro_hal.h`.
+15: включва `board_power.h`.
+16: `mqtt_link.h`.
+17: `wifi_link.h`.
+19: `TAG`.
+21: `static EwConfig s_cfg;` статична конфигурация (задачите държат указател).
+22: `kSubTopics[1] = {TOPIC_WIFI_COMMANDS}`: единственият абонамент.
+23: `static char s_lwtTopic[40], s_lwtMsg[64];` буфери за Last Will; трябва да са глобални, защото MQTT клиентът ги копира в `mqtt_link_init`, но стойностите се строят преди това.
+25: `onGotIp` колбек: стартира MQTT при получен IP.
+27: `extern "C" void app_main(void) {` ([[extern-c]]).
+28: `board_power_init()`: освобождава пиновете и ги прави LOW.
+29: executor (Wi-Fi): като LoRa executor-а, интерфейсите са включени постоянно (нямат батерия по LoRa).
+30: `hal_nvs_init();`
+31: `ew_config_load(&s_cfg);`
+33..34: коментар: всички консуматори са изключени при (ре)стартиране: безопасно състояние; бекендът го вижда чрез автоматичния state response с `restart:true`.
+35: `consumers_init(&s_cfg.consumers);`
+37: ако няма ID или мрежова конфигурация ...
+38: ... лог ...
+39: ... `return`.
+40: затваря.
+42: `msgQ = xQueueCreate(8, sizeof(EwMsg));` ([[queue]]).
+44: `ew_reset(&s_cfg, msgQ);`
+45: създава `ew_exec` със стек 4096 B, приоритет 5, ядро 1 ([[freertos-task]]).
+49: темата на Last Will.
+50: съобщението "offline" (`online = false`).
+51: `MqttLinkConfig mc = {};`
+52: `host`.
+53: `port`.
+54: `user`.
+55: `password`.
+56: `clientId`.
+57: `lwtTopic`: retained "offline" при неочаквано прекъсване.
+58: `lwtMessage`.
+59: `subTopics`.
+60: `subCount = 1`.
+61: `subQos = 1`: QoS 1; команди без retain; clean session: стари команди не се доставят.
+62: `onMessage = ew_on_message`.
+63: `onConnection = ew_on_connection`.
+64: `mqtt_link_init(&mc);`
+65: `wifi_link_start(...)`: стартира Wi-Fi.
+67: лог "готов".
+68: затваря.

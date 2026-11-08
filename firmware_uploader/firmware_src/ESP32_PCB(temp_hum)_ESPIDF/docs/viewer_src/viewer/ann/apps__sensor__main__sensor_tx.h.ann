@@ -1,0 +1,11 @@
+1: `#ifndef SENSOR_TX_H`: [[header-guard]].
+2: дефинира го.
+4: `sensor_config.h`: `SensorConfig`.
+5: `sensors_io.h`: `SensorSample`.
+7: коментар: стартира радиото на честотата от NVS; `false` = чипът не е отговорил (не се зацикля, защото е на батерия).
+8: `bool sensor_radio_init(const SensorConfig *c);`
+10..12: коментар: строи криптирания пакет (S_ID в чисто, 4-те стойности като int16 x100 криптирани = 22 B), праща го по LoRa (jitter + listen-before-talk), после приспива радиото. `false` = нищо не е излъчено (няма ключ/id, провал на NVS ceiling или TX). Броячът на nonce е в RTC паметта и оцелява при дълбок сън.
+13: `bool sensor_send_packet(const SensorConfig *c, const SensorSample *s);`
+15: коментар: номерът на последния излъчен пакет е в `ceiling_counter`; `sensor_tx_reset` е за тестове.
+16: `void sensor_tx_reset(void);`
+18: `#endif`.

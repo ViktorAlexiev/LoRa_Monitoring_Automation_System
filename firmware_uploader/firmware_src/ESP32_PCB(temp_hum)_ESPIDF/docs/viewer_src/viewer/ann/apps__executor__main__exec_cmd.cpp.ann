@@ -1,0 +1,48 @@
+1: включва `exec_cmd.h`.
+4: `<string.h>`: `memcpy`.
+5: `esp_log.h`.
+6: `consumers.h`: функциите за консуматори.
+7: `agro_hal.h`: `hal_millis`.
+8: `protocol.h`: `CMD_ON`, `CMD_OFF`, `STATUS_*`.
+9: `radio_timing.h`: `RADIO_EXEC_ACK_DELAY_MS`.
+11: `TAG`.
+13: `static const ExecConfig *s_cfg = nullptr;` указател към конфигурацията (само за четене).
+14: `static QueueHandle_t s_cmdQ = nullptr, s_ackInQ = nullptr;` две променливи от един тип на един ред: опашката с команди (вход) и опашката за ACK (изход).
+15: `s_radioTask`: дръжката на радио задачата.
+17: `exec_cmd_init(...)`: запомня зависимостите.
+18: `s_cfg = cfg;`
+19: `s_cmdQ = cmdQ;`
+20: `s_ackInQ = ackInQ;`
+21: `s_radioTask = radioTask;`
+22: затваря.
+24: `void exec_cmd_process(const CommandPacket &in)`: изпълнява една команда.
+25: `CommandPacket p = in;` работно копие (ще се промени `status`).
+26: `char c_id[5] = {0};` низ с нулев терминатор за лога (`C_ID` няма терминатор).
+27: `memcpy(c_id, p.C_ID, 4);` копира 4-те символа.
+29: `idx = consumers_index(&s_cfg->consumers, p.C_ID);` позицията на консуматора по ID или -1.
+30: `cmdOk` ако командата е `CMD_ON` или `CMD_OFF`.
+32: ако консуматорът съществува, е използваем и командата е валидна ...
+33: ... `consumers_set(..., p.com == CMD_ON)` включва/изключва пина ...
+34: ... лог ...
+35: ... `p.status = STATUS_ACK` ...
+36: `} else {` иначе ...
+37: ... лог на отказа с причината; вложените тернарни изрази избират текста ...
+38: ... (продължение) ...
+39: ... `p.status = STATUS_NACK`.
+40: затваря.
+42: коментар: пауза преди ACK: gateway трябва да излезе от TX и да влезе в RX (half-duplex).
+43: `AckReq r;` заявка към радио задачата.
+44: `r.pkt = p;` какво да потвърди.
+45: `r.sendAt = hal_millis() + RADIO_EXEC_ACK_DELAY_MS;` не по-рано от 500 ms оттук.
+46: `xQueueSend(s_ackInQ, &r, 0) != pdTRUE`: опашката е пълна ...
+47: ... лог ...
+48: ... `return`.
+49: затваря.
+50: `if (s_radioTask) xTaskNotifyGive(s_radioTask);` събужда радио задачата ([[notify]]).
+51: затваря.
+53: `void exec_cmd_task(void *)`: тялото на задачата `exec_cmd`.
+54: `CommandPacket p;`
+55: `for (;;) {`
+57: блокира на опашката `s_cmdQ` без таймаут; при елемент вика `exec_cmd_process(p)`.
+58: затваря цикъла.
+59: затваря.

@@ -1,0 +1,13 @@
+1..7: коментар: `exec_cmd` е задачата, която изпълнява валидираните команди (GPIO) и заявява ACK/NACK към радио задачата. Изпълнението е НЕЗАБАВНО; само ACK-ът се бави `RADIO_EXEC_ACK_DELAY_MS` (gateway-ят трябва да излезе от TX и да влезе в RX), и това закъснение се носи от `AckReq.sendAt`, а не със заспиване в задачата: така следващата команда не чака ACK-а на предходната.
+8: `#ifndef EXEC_CMD_H`: [[header-guard]].
+9: дефинира го.
+11: `exec_config.h`: `ExecConfig`.
+12: `exec_types.h`: `CommandPacket`.
+13: `freertos/FreeRTOS.h`.
+14: `freertos/queue.h`: `QueueHandle_t` ([[queue]]).
+15: `freertos/task.h`: `TaskHandle_t`.
+17: `void exec_cmd_init(cfg, cmdQ, ackInQ, radioTask);` подава конфигурацията, двете опашки и дръжката на радио задачата (за известяване).
+19: коментар: изпълнява една команда (за тестове и от задачата).
+20: `void exec_cmd_process(const CommandPacket &in);` `const ... &` е референция само за четене ([[reference]]).
+22: `void exec_cmd_task(void *arg);` тялото на задачата.
+24: `#endif`.

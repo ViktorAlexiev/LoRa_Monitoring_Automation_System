@@ -1,11 +1,13 @@
 #include "queues.h"
+#include "debug_log.h"
 
 static CommandPacket rxBuffer[RXBUFFSIZE];
-static uint8_t rxHead = 0, rxTail = 0;
+static uint8_t rxHead = 0;
+static uint8_t rxTail = 0;
 uint8_t rxCount = 0;
 
-bool rxPush(CommandPacket p) {
-  if (rxCount >= RXBUFFSIZE) { Serial.println("[ERR] RX buffer full"); return false; }
+bool rxPush(const CommandPacket &p) {
+  if (rxCount >= RXBUFFSIZE) { DBGLN(F("[ERR] RX buffer full")); return false; }
   rxBuffer[rxTail] = p;
   rxTail = (rxTail + 1) % RXBUFFSIZE;
   rxCount++;
@@ -20,11 +22,11 @@ bool rxPop(CommandPacket *out) {
 }
 
 CommandPacket ackQueue[ACKBUFFSIZE];
-unsigned long ackSendAt[ACKBUFFSIZE] = {0};
+uint32_t ackSendAt[ACKBUFFSIZE] = {0};
 uint8_t ackCount = 0;
 
-bool ackEnqueue(CommandPacket p, unsigned long sendAt) {
-  if (ackCount >= ACKBUFFSIZE) { Serial.println("[ERR] ACK queue full"); return false; }
+bool ackEnqueue(const CommandPacket &p, uint32_t sendAt) {
+  if (ackCount >= ACKBUFFSIZE) { DBGLN(F("[ERR] ACK queue full")); return false; }
   ackQueue[ackCount]  = p;
   ackSendAt[ackCount] = sendAt;
   ackCount++;

@@ -1,0 +1,24 @@
+1: `<stdio.h>`: `printf`, `getchar`, `fflush`, `stdout`.
+2: `config_app.h`.
+3: `esp_log.h`.
+4: `freertos/FreeRTOS.h`.
+5: `freertos/task.h`: `vTaskDelay`.
+6: `agro_hal.h`: `hal_nvs_init`.
+8: `TAG`.
+10: `static int consoleGetChar(void) { return getchar(); }` обвивка на `getchar()`: чете символ от конзолата; връща -1 (EOF), ако няма данни (конзолата не блокира).
+11: `static void consolePrint(const char *line) {` изпраща ред към конзолата.
+12: `printf("%s\n", line);` отпечатва реда и нов ред.
+13: `fflush(stdout);` изпраща буфера веднага (иначе Python може да не го види навреме).
+14: затваря.
+16: `extern "C" void app_main(void) {` ([[extern-c]]).
+17: ако NVS не се инициализира ...
+18: ... `printf("NACK:...")` ...
+19: ... `return`.
+20: затваря.
+21: `ConfigIo io = {consoleGetChar, consolePrint};` създава структурата с двете функции: подават се като указатели към функции ([[func-pointer]]).
+22: `config_run(&io, 60000, 500)`: слуша до 60 s.
+23: ако е приета: лог "конфигурацията е записана".
+24: иначе предупреждение "няма конфигурация".
+25: коментар: config-firmware не прави нищо друго: реалното приложение се качва отгоре.
+26: `vTaskDelay(portMAX_DELAY);` блокира главната задача безкрайно (`portMAX_DELAY` е най-голямото число тикове), вместо да излезе.
+27: затваря.

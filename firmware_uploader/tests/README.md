@@ -8,7 +8,7 @@
 ## Как да пуснеш всичко
 
 ```bash
-cd tests/native && ./run_all.sh
+cd tests/native && ./run_all.sh          # ATmega + TTGO (LoRa_radio_node+TTGO)
 ```
 ```bash
 cd tests/python && python -m unittest test_validation -v
@@ -35,6 +35,78 @@ cd tests/python && python -m unittest test_validation -v
 | `*/radio_timing.cpp` | ✅ Пълно | Time-on-Air срещу независима формула с `double` върху 9216 комбинации (SF7–12 × BW × дължини × CR × CRC), граница на LDRO (SF11/125 kHz), CAD таймаут (8/10/14/22/39/72 ms), стъпка, прозорци, всички ACK/state таймаути, отсъствие на 4000 ms под. |
 | `*/channel_access.cpp` | ✅ Пълно | 13 теста с подменени CAD/random: COMMAND (първи CAD веднага, сондиране, backoff, give-up), TELEMETRY_FORCE/SKIP (най-много 2 CAD-а), най-много един CAD на `poll`, `millis()` wraparound. |
 | `*/config_storage.cpp` (SF/BW) | ✅ Пълно | EEPROM 95/96: валидни стойности, 0xFF и невалидни -> SF7/125 kHz. |
+
+## ESP32_PCB(temp_hum) - отделен набор (`tests/native/esp32`)
+
+```bash
+cd tests/native/esp32 && ./run_esp32.sh          # всичко (компилира + пуска)
+./mutation_check.sh                              # мутационна проверка: умишлени грешки трябва да се улавят
+```
+
+Тества РЕАЛНИТЕ `.cpp`/`.ino` файлове на `firmware_src/ESP32_PCB(temp_hum)` срещу фалшиви Arduino/ESP-IDF
+заместители (`fakelibs_esp32/`: Preferences/NVS, WiFi, PubSubClient, LoRa, сън, часовник, GPIO) и РЕАЛНАТА
+библиотека ArduinoJson. Реалните `sensor.ino`, `gateway.ino`, `executor.ino`, `repeater.ino`,
+`executor_wifi.ino` и `config_esp32.ino` се включват директно и се изпълняват (`setup()`/`loop()`).
+
+| Какво | Как |
+|---|---|
+| `ceiling_counter` (NVS + RTC памет) | watermark, уникалност на nonce през рестарти, без запис във flash при събуждане от дълбок сън, ~351 записа/година за сензор |
+| `config_storage` (sensor/executor/repeater/executor_wifi) | NVS ключове, default стойности, невалидни SF/BW/честота, клампа на консуматорите |
+| `power_mgmt` | лек сън: тиковете от 8 s следват реалното време дори при чести събуждания; дълбок сън 113 x 8 s |
+| `config_esp32.ino` | подава се точно `CFG:{...}` като от Firmware Uploader: ACK/NACK, запис в NVS, граници (SF, BW, GPIO 0-39, дължини), `net=1`, непипане на `ceil` |
+| `executor_wifi` | реален сеанс срещу фалшив брокер: clean session, Last Will, QoS 1 абониране, филтър по `M_ID`, A1/B2/C3, JSON на отговорите, опашка от 8, reconnect/рестарт |
+| sensor -> gateway (e2e) | реалният `sensor.ino` строи 22-байтов пакет, реалният `gateway.ino` го декриптира и публикува JSON; `-32768`, dedup, подправени/чужди пакети, всички SF/BW |
+| gateway команди (e2e) | MQTT команда -> LoRa пакет -> ACK/NACK/TIMEOUT, 2 повторения, интервал > airtime при SF7/9/12, чужд ACK, заета линия, състояния, heartbeat; нито едно съобщение не е retained |
+| LoRa executor | реалният `executor.ino`: boot (пинове LOW + restart response с 2 повторения), команди, NACK, чужд ключ/цел, подправени пакети, опашки, heartbeat на ~304 s, сън |
+| repeater | препращане на истински sensor пакети на TX честотата, dedup (6 записа), опашка, заета линия, heartbeat |
+
+**Мутационна проверка:** `mutation_check.sh` въвежда на копие по една умишлена грешка (~35 мутации: retain
+флаг, липсващ филтър по `M_ID`, грешна честота на repeater, сън, NVS ключове, ...) и изисква `run_esp32.sh`
+да се провали. Резултат към момента: всички са уловени.
+
+**Какво НЕ е тествано:** реално радио (обхват, колизии, реален CAD на SX127x), реален Wi-Fi/брокер, реален
+flash/NVS и износване, реалното събуждане на чипа от DIO0, реалното крипто (Crypto/AES_CMAC библиотеките -
+тук е верифицираната AES-128 реализация), реалните пинове на платката (`board_pins.h` е временен).
+
+**Забележка за Windows/MinGW:** тестовете се свързват статично (`-static`), защото в PATH има няколко
+`libstdc++-6.dll` и динамичното свързване води до срив в iostream.
+
+## ESP32_PCB(temp_hum)_ESPIDF - отделен набор (`tests/native/espidf`)
+
+```bash
+cd tests/native/espidf
+./run_espidf.sh              # rtos core sx127x net sensor executor repeater gateway executor_wifi config
+./run_compat.sh              # диференциален тест: ESP-IDF <-> стари Arduino прошивки (Python = независим арбитър)
+./run_system.sh              # системна симулация: всички устройства като процеси в общ час и общ радио ефир
+python mutation_check.py     # умишлени грешки в кода - тестовете трябва да ги уловят
+```
+
+Тества РЕАЛНИТЕ `components/` и `apps/<приложение>/main` на `firmware_src/ESP32_PCB(temp_hum)_ESPIDF` срещу
+`fake_idf/` - **симулатор на FreeRTOS във виртуално време** (задачи, приоритети, ядра, опашки, mutex, notify,
+`esp_timer`; "chaos" режим за преплитане на задачите), **модел на SX127x**, GPIO с прекъсвания, SPI, I2C със SHT31/SHT21,
+NVS, Wi-Fi + event loop, **MQTT брокер** (сесии, абонаменти, Last Will, outbox поведение на esp-mqtt) и mbedtls.
+
+| Набор | Какво пази |
+|---|---|
+| `rtos` | самият симулатор (приоритети, preemption, опашки, таймаути, mutex, notify, esp_timer, детерминизъм на chaos) |
+| `core` | крипто (golden вектори от `cryptography`, RFC 4493/NIST), JSON (парсер+валидатор+fuzz), NVS обвивка, ceiling/nonce (flash/RTC), radio_timing, channel_access, watchdog, dedup, hal (GPIO/IRQ), парсер на конфигурацията (всеки отрязан префикс се отхвърля) |
+| `sx127x` | драйверът срещу модела на чипа: регистри, SF/BW/LDRO, честота, TX/RX/CAD, DIO0; **времената в radio_timing съвпадат с airtime на чипа за всички SF/BW/дължини** |
+| `net` | wifi_link/mqtt_link: reconnect, 2-минутен рестарт, clean session, Last Will, QoS 1 абониране при ВСЯКО свързване, нищо в outbox без връзка |
+| `sensor` | цикъл, отказ на всеки сензор поотделно, CRC/диапазон, дълбок сън, nonce през дълбок сън/power-on, неконфигурирано устройство |
+| `executor` | boot (пинове LOW), restart response (3 опита/ACK), команди/ACK/NACK, чужди/повредени пакети, state request, heartbeat, канал зает, енергия (>99.9 % сън, събуждане по DIO0), nonce, chaos |
+| `repeater` | препращане байт по байт на TX честота, dedup, опашка, прием по време на чакане на канала, heartbeat, енергия, chaos |
+| `gateway` | задачи по ядра/приоритети, sensor->JSON, dedup, state response + ACK по радиото, команден път (ACK/NACK/TIMEOUT/повторения), канал, nonce, мрежови прекъсвания, watchdog, chaos |
+| `executor_wifi` | `wifi_commands`, филтър по M_ID, статуси QoS 1, Last Will, restart state response веднъж на boot, мрежови прекъсвания |
+| `config` | протокол READY/ACK/NACK, шум преди CFG, повреден/отрязан/прекалено дълъг ред, UTF-8 в SSID |
+| `compat` (Python) | същите кадри през старата и новата реализация дават еднакви MQTT съобщения/ACK/пинове; wire форматът е еднакъв с независим Python еталон |
+| `system` (Python) | ВСИЧКИ устройства заедно (отделни процеси, общ виртуален час, общ ефир с колизии и CAD): sensor→repeater→gateway→MQTT, MQTT→gateway→executor→ACK→MQTT, Wi-Fi executor, 6-часов ход; намери колизията на два repeater-а и синхронизирането на heartbeat-ите |
+
+**Какво НЕ е тествано:** реален ESP-IDF API (компилация), реален SX127x/антена/колизии, реален ток и сън, реален
+Wi-Fi/брокер, реален flash/NVS, истински паралелно изпълнение на двете ядра (chaos преплита на границите на
+извикванията на FreeRTOS/периферията, не на всяка инструкция). Виж чеклиста за bench теста в README на папката.
+
+**Забележка (Windows/MinGW):** `-static` (както при другите набори). `mutation_check.py` ползва Git Bash (не WSL
+`bash.exe`) и временна папка без интервали (`run_espidf.sh` не цитира пътищата).
 
 ## Какво НЕ е тествано тук (и защо)
 

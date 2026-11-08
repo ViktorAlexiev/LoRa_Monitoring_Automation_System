@@ -5,7 +5,7 @@
 # остатъчни препратки към премахнати константи). Ползва минимални заместители на LoRa.h/SPI.h;
 # gateway/lora_handlers.cpp ползва РЕАЛНАТА ArduinoJson от библиотеките на машината.
 cd "$(dirname "$0")"
-SRC=../../firmware_src
+SRC=${SRC:-../../firmware_src/LoRa_radio_node+TTGO}
 ARDUINOJSON="D:/A1_WinData/Documents/Arduino/libraries/ArduinoJson/src"
 CXX="g++ -std=c++17 -fsyntax-only -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function"
 

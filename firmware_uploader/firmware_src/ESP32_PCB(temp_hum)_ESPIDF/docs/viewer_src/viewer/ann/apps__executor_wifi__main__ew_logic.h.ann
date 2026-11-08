@@ -1,0 +1,35 @@
+1..16: коментар: `ew_logic` е Wi-Fi executor: приема команди директно по MQTT (без LoRa), превключва консуматори (GPIO) и отговаря със същите теми и JSON като gateway: бекендът не се променя. Към модула (единствената нова тема): `wifi_commands` (QoS 1, без retain, clean session): команда `{"M_ID":"E007","C_ID":"V01","com":"A1"}` (A1 = включи, B2 = изключи) или заявка за състояние `{"M_ID":"E007","com":"C3"}`. Всички Wi-Fi модули са абонирани и филтрират по `M_ID`. Gateway НЕ е абониран. От модула: `commands_status`, `module_states_response` (след boot с `"restart":true`), `heartbeat`, `executors/<id>/lwt` (retained: Last Will "offline" и "online" при свързване). Задачи: ядро 0 е Wi-Fi стекът и esp-mqtt; ядро 1 е `ew_exec` (приоритет 5). Колбекът на MQTT само филтрира по M_ID и слага в опашка (8). Командите се изпълняват една по една.
+17: `#ifndef EW_LOGIC_H`: [[header-guard]].
+18: дефинира го.
+20: `<stddef.h>`.
+21: `<stdint.h>`.
+22: `ew_config.h`.
+23: `freertos/FreeRTOS.h`.
+24: `freertos/queue.h`.
+25: `freertos/task.h`.
+27: `TOPIC_WIFI_COMMANDS` = "wifi_commands".
+28: `TOPIC_COMMANDS_STATUS` = "commands_status".
+29: `TOPIC_STATE_RESP` = "module_states_response".
+30: `TOPIC_HEARTBEAT` = "heartbeat".
+32: `EW_HEARTBEAT_INTERVAL_MS` = 30 s.
+33: `EW_MSG_QUEUE_SIZE` = 8.
+35: `EW_MSG_COMMAND` = 1: съобщение "команда".
+36: `EW_MSG_STATE_REQ` = 2: заявка за състояние.
+37: `EW_MSG_CONNECTED` = 3: MQTT връзката е установена.
+39: `struct EwMsg {` съобщение в опашката ([[struct]]).
+40: `uint8_t kind;` вид.
+41: `uint8_t com;` код на командата.
+42: `char c_id[CONSUMER_ID_LEN + 1];` ID на консуматора.
+43: затваря.
+45: `void ew_reset(const EwConfig *cfg, QueueHandle_t msgQ);`
+47: коментар: MQTT колбеци (контекст на esp-mqtt задачата).
+48: `void ew_on_message(topic, data, len, ctx);` колбек за съобщение ([[func-pointer]]).
+49: `void ew_on_connection(bool connected, void *ctx);` колбек за промяна на връзката.
+51: `void ew_handle(const EwMsg &m);` една опашна единица (задачата и тестовете).
+52: `void ew_tick(void);` heartbeat.
+53: `uint32_t ew_next_wait_ms(void);`
+54: `void ew_exec_task(void *arg);`
+56: коментар: Last Will тема и съобщение (за конфигурацията на MQTT клиента).
+57: `void ew_lwt_topic(cfg, out, cap);` записва темата в `out`.
+58: `void ew_lwt_message(cfg, online, out, cap);` записва съобщението.
+60: `#endif`.

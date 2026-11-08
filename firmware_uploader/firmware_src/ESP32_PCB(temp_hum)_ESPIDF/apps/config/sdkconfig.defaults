@@ -1,0 +1,9 @@
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_FREERTOS_HZ=1000
+# cfg_apply_line държи няколко KB локални буфери
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+# crypto_common.cpp (компонент agro_core) се компилира във всяко приложение, което го ползва, и иска CMAC (в IDF е изключен по подразбиране)
+CONFIG_MBEDTLS_CMAC_C=y
+# без Task Watchdog (по желание на заданието): иначе IDF го пуска по подразбиране (5 s, само предупреждение)
+CONFIG_ESP_TASK_WDT_INIT=n

@@ -7,11 +7,14 @@
 #include "power_mgmt.h"
 #include "cad.h"
 #include "radio_io.h"
+#include "debug_log.h"
+#include "rng_seed.h"
 
 void setup() {
+  wdt_arm_8s_continuous();   // реален watchdog (8 s) от първия ред
   loadConfigFromEeprom();
-  Serial.begin(115200);
-  randomSeed(micros());   // seed без зависимост от пин - консуматорски пинове може да заемат всеки аналогов
+  DBG_BEGIN(115200);
+  seedRandomUnique((const uint8_t*)MY_M_ID, MODULE_ID_LEN, txCounter.peek());   // уникален за устройството (ID + nonce брояч)
 
   for (uint8_t i = 0; i < NUM_CONSUMERS; i++) {
     pinMode(consumerPins[i], OUTPUT);
@@ -20,11 +23,10 @@ void setup() {
 
   radio_setup();
   enablePinChangeWake();
-  wdt_arm_8s_continuous();
-  Serial.print(F("Executor modul готов, M_ID=")); Serial.print(MY_M_ID);
-  Serial.print(F(" freq=")); Serial.print(LORA_FREQ_HZ);
-  Serial.print(F(" sf=")); Serial.print(LORA_SF);
-  Serial.print(F(" bw=")); Serial.println(LORA_BW_HZ);
+  DBG(F("Executor modul готов, M_ID=")); DBG(MY_M_ID);
+  DBG(F(" freq=")); DBG(LORA_FREQ_HZ);
+  DBG(F(" sf=")); DBG(LORA_SF);
+  DBG(F(" bw=")); DBGLN(LORA_BW_HZ);
 
   // Специален state response веднага след boot - маркира началото на живота на този
   // firmware инстанс (консуматорите бяха принудително изключени по-горе). Gateway трябва
@@ -33,6 +35,7 @@ void setup() {
 }
 
 void loop() {
+  wdt_feed();   // "жив съм": ако цикълът се забие, следващият таймаут на watchdog-а рестартира чипа
   radioReceivePoll();
   processRx();
   ackManager();

@@ -1,11 +1,11 @@
 #include "ceiling_counter.h"
 #include <EEPROM.h>
 
-void CeilingCounter::begin(int eepromAddr) {
+void CeilingCounter::begin(uint16_t eepromAddr) {
   addr = eepromAddr;
   uint32_t stored;
   EEPROM.get(addr, stored);
-  if (stored == 0xFFFFFFFFUL) stored = 0;   // неинициализиран EEPROM (нов chip)
+  if (stored == UINT32_C(0xFFFFFFFF)) stored = 0;   // неинициализиран EEPROM (нов chip)
   current = stored;
   committed = stored;
 }

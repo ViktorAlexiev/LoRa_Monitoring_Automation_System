@@ -8,6 +8,7 @@
 #include "channel_access.h"
 #include "dedup.h"
 #include "power_mgmt.h"
+#include "debug_log.h"
 
 void radio_setup() {
   // времената (CAD, изчакване) се извеждат от SF/BW, прочетени от EEPROM
@@ -15,10 +16,11 @@ void radio_setup() {
 
   LoRa.setPins(LORA_NSS, LORA_RST, LORA_DIO0);
 
-  unsigned long lastMsg = 0;
+  uint32_t lastMsg = 0;
   while (!LoRa.begin(LORA_FREQ_RX_HZ)) {
+    wdt_feed();   // мъртво радио не е забиване: продължава да опитва
     if (millis() - lastMsg >= LORA_BEGIN_RETRY_MSG_MS) {
-      Serial.println(F("[ERR] LoRa не стартира (LoRa.begin провал), продължавам да опитвам..."));
+      DBGLN(F("[ERR] LoRa не стартира (LoRa.begin провал), продължавам да опитвам..."));
       lastMsg = millis();
     }
   }
@@ -44,7 +46,7 @@ void enter_rx_mode() {
 struct PendingForward {
   uint8_t buf[DEDUP_MAX_LEN];
   uint8_t len;
-  unsigned long sendAt;
+  uint32_t sendAt;
   bool active;
 };
 static PendingForward fwdQueue[FWD_QUEUE_SIZE];
@@ -59,8 +61,8 @@ static uint8_t       accessOwner = OWNER_NONE;
 static int8_t        accessSlot  = -1;
 static ChannelAccess ca;
 
-static inline bool reached(unsigned long now, unsigned long t) {
-  return (long)(now - t) >= 0;
+static inline bool reached(uint32_t now, uint32_t t) {
+  return (int32_t)(now - t) >= 0;
 }
 
 // CAD се прави на TX честотата (там ще предаваме); помним дали е бил изпълнен на този ход,
@@ -74,26 +76,30 @@ static bool cadOnTxFreq() {
 
 static void transmitNow(const uint8_t *buf, uint8_t len) {
   // вика се при радио на TX честотата
-  LoRa.beginPacket();
-  LoRa.write(buf, len);
-  LoRa.endPacket();
+  if (!loraTransmit(buf, len)) DBGLN(F("[TX] предаването не приключи (таймаут)"));
   enter_rx_mode();
 }
 
-void receive_and_queue(int len) {
+void receive_and_queue(uint8_t len) {
+  // По-дълъг пакет не минава през repeater-а: отрязано копие би се препратило като повреден кадър (приемникът го
+  // отхвърля по MAC) и би хабило ефирно време. Изхвърля се цял - както в ESP-IDF прошивката.
+  if (len > DEDUP_MAX_LEN) {
+    while (LoRa.available()) LoRa.read();
+    DBG(F("[RX] пакет от ")); DBG(len); DBG(F(" B е над границата ")); DBG(DEDUP_MAX_LEN); DBGLN(F(" B - не се препраща"));
+    return;
+  }
   uint8_t buf[DEDUP_MAX_LEN];
-  int i = 0;
-  while (LoRa.available() && i < len && i < (int)sizeof(buf)) {
+  uint8_t i = 0;
+  while (LoRa.available() && i < len) {
     buf[i++] = (uint8_t)LoRa.read();
   }
-  while (LoRa.available()) LoRa.read();   // изхвърли остатъка, ако пакетът е бил по-голям от буфера ни
   if (i == 0) return;
 
   // Вече сме препратили точно тези байтове наскоро (дублиран прием, напр. чут и от двама
   // repeater-и на предишното ниво) - пропусни. Пакетът не се променя при препращане, затова
   // дубликатите са байт по байт идентични.
   if (dedupSeen(buf, i)) {
-    Serial.println(F("[RX] дублиран пакет (dedup), игнориран"));
+    DBGLN(F("[RX] дублиран пакет (dedup), игнориран"));
     return;
   }
   dedupAdd(buf, i);
@@ -104,17 +110,17 @@ void receive_and_queue(int len) {
       fwdQueue[s].len = i;
       fwdQueue[s].sendAt = millis() + random(0, FORWARD_BACKOFF_MAX_MS);
       fwdQueue[s].active = true;
-      Serial.print(F("[RX] пакет приет, len=")); Serial.print(i);
-      Serial.println(F(" -> опашка за препращане"));
+      DBG(F("[RX] пакет приет, len=")); DBG(i);
+      DBGLN(F(" -> опашка за препращане"));
       return;
     }
   }
   // опашката е пълна (много рядко - 4 едновременни forward-а) - пакетът се губи
-  Serial.println(F("[ERR] forward опашка пълна, пакет изгубен"));
+  DBGLN(F("[ERR] forward опашка пълна, пакет изгубен"));
 }
 
 void process_pending_forwards() {
-  unsigned long now = millis();
+  uint32_t now = millis();
 
   if (accessOwner == OWNER_NONE) {
     for (uint8_t s = 0; s < FWD_QUEUE_SIZE; s++) {
@@ -138,7 +144,7 @@ void process_pending_forwards() {
   }
 
   transmitNow(fwdQueue[accessSlot].buf, fwdQueue[accessSlot].len);
-  Serial.print(F("[TX FORWARD] len=")); Serial.println(fwdQueue[accessSlot].len);
+  DBG(F("[TX FORWARD] len=")); DBGLN(fwdQueue[accessSlot].len);
   fwdQueue[accessSlot].active = false;
   accessSlot  = -1;
   accessOwner = OWNER_NONE;
@@ -153,13 +159,12 @@ bool any_forward_pending() {
 
 // ---------------- Heartbeat ----------------
 static bool hbPending = false;
-static unsigned long hbSendAt = 0;
+static uint32_t hbSendAt = 0;
 
 void heartbeat_tick() {
-  unsigned long now = millis();
+  uint32_t now = millis();
 
-  if (!hbPending && wdt_ticks >= HB_INTERVAL_CYCLES) {
-    wdt_ticks -= HB_INTERVAL_CYCLES;
+  if (!hbPending && wdt_ticks_consume(HB_INTERVAL_CYCLES)) {
     hbPending = true;
     hbSendAt = now + random(0, HB_JITTER_MAX_MS);
   }
@@ -184,10 +189,10 @@ void heartbeat_tick() {
                                              (const uint8_t*)REPEATER_ID, hbCounter.next(),
                                              NULL, 0);
     transmitNow(wireBuf, wireLen);
-    Serial.print(F("[TX HB] M_ID=")); Serial.println(REPEATER_ID);
+    DBG(F("[TX HB] M_ID=")); DBGLN(REPEATER_ID);
   } else {
     enter_rx_mode();
-    Serial.println(F("[HB] канала зает, пропускам този heartbeat"));
+    DBGLN(F("[HB] канала зает, пропускам този heartbeat"));
   }
   hbPending   = false;
   accessOwner = OWNER_NONE;

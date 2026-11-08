@@ -1,0 +1,34 @@
+16: начало на защитата от двойно включване ([[header-guard]]).
+17: дефинира `RADIO_TIMING_H`.
+19: `<Arduino.h>`: типове.
+21: `RADIO_SF_MIN`: най-малкият spreading factor (7) ([[sf]]).
+22: `RADIO_SF_MAX`: най-големият (12).
+23: `RADIO_SF_DEFAULT`: подразбиращ се 7.
+24: `RADIO_BW_DEFAULT_HZ`: широчина 125 kHz по подразбиране. `UINT32_C` прави литерала 32-битов ([[avr-int16]]).
+28: `RADIO_BW_INDEX_COUNT`: поддържат се 3 широчини (62.5, 125, 250 kHz) ([[bw]]).
+31: `RADIO_MAX_PAYLOAD_LEN` (64 B): най-дългият пакет (state response с 10 консуматора).
+32: `RADIO_TELEMETRY_LEN` (30 B): горна граница за сензорен пакет (22 B или 24 B с батерия).
+33: `RADIO_CMD_WIRE_LEN` (26 B): команда Gateway -> Executor.
+34: `RADIO_ACK_WIRE_LEN` (20 B): ACK/NACK и state request.
+37: `RADIO_EXEC_ACK_DELAY_MS`: Executor чака 500 ms преди ACK, защото радиото е полудуплексно ([[half-duplex]]).
+39: `RADIO_PROCESSING_MS`: груба оценка на обработката при отсрещната страна.
+41: `radioSfValid`: проверка дали SF е в допустимия диапазон.
+42: `radioBwFromIndex`: индекс от EEPROM -> Hz (0 при невалиден).
+43: `radioBwToIndex`: Hz -> индекс (0xFF при неподдържан).
+47: `radioTimingInit`: задава текущите параметри; невалидните се заменят с подразбиращи се.
+49: `radioSf()`: текущият SF.
+50: `radioBw()`: текущата широчина в Hz.
+51: `radioCrDenom()`: знаменателят на coding rate (5..8).
+52: `radioPreambleLen()`: дължина на преамбюла.
+54: `radioSymbolUs()`: символно време Ts в микросекунди ([[lora-timing]]).
+55: `radioLdroNeeded()`: дали е нужна LDRO (Ts > 16 ms).
+56: `radioToaMs`: Time-on-Air за пакет с `payloadLen` байта, закръглен нагоре в ms.
+58: `radioCadTimeoutMs`: колко най-много се чака един CAD.
+59: `radioCadStepMs`: стъпка на сондиране = по-голямото от CAD таймаута и 4 символа.
+60: `radioSensingWindowMs`: срок на сондиране = въздушното време на най-дългия пакет.
+61: `radioTelemetryWaitMs`: най-дългото изчакване на телеметрия.
+62: `radioSlotMs`: слот на случайния backoff.
+65: `radioAckTimeoutCmdMs`: колко се чака ACK след команда.
+66: `radioAckTimeoutRestartMs`: колко се чака ACK след state response при рестарт.
+67: `radioStateReqTimeoutMs`: колко се чака state response след state request.
+69: край на защитата.

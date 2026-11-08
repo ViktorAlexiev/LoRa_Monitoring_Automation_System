@@ -10,16 +10,17 @@ uint8_t NETWORK_KEY[CRYPTO_KEY_LEN];
 CeilingCounter hbCounter;
 
 void loadConfigFromEeprom() {
-  int addr = EEPROM_ADDR_MODULE_ID;
-  for (int i = 0; i < MODULE_ID_LEN; i++) REPEATER_ID[i] = EEPROM.read(addr++);
+  uint16_t addr = EEPROM_ADDR_MODULE_ID;
+  for (uint8_t i = 0; i < MODULE_ID_LEN; i++) REPEATER_ID[i] = EEPROM.read(addr++);
   REPEATER_ID[MODULE_ID_LEN] = 0;
 
-  uint32_t storedRx, storedTx;
+  uint32_t storedRx;
+  uint32_t storedTx;
   EEPROM.get(EEPROM_ADDR_FREQUENCY, storedRx);
-  LORA_FREQ_RX_HZ = (storedRx == 0 || storedRx == 0xFFFFFFFFUL) ? LORA_FREQ_RX_DEFAULT_HZ : storedRx;
+  LORA_FREQ_RX_HZ = (storedRx == 0 || storedRx == UINT32_C(0xFFFFFFFF)) ? LORA_FREQ_RX_DEFAULT_HZ : storedRx;
 
   EEPROM.get(EEPROM_ADDR_FREQUENCY_TX, storedTx);
-  LORA_FREQ_TX_HZ = (storedTx == 0 || storedTx == 0xFFFFFFFFUL) ? LORA_FREQ_TX_DEFAULT_HZ : storedTx;
+  LORA_FREQ_TX_HZ = (storedTx == 0 || storedTx == UINT32_C(0xFFFFFFFF)) ? LORA_FREQ_TX_DEFAULT_HZ : storedTx;
 
   uint8_t sf = EEPROM.read(EEPROM_ADDR_SF);
   LORA_SF = radioSfValid(sf) ? sf : RADIO_SF_DEFAULT;

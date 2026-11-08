@@ -6,7 +6,7 @@ static uint8_t  s_cr  = 5;      // знаменател: 5..8 (4/5..4/8)
 static uint8_t  s_pre = 8;
 static bool     s_crc = true;
 
-static const uint32_t BW_TABLE[RADIO_BW_INDEX_COUNT] = {62500UL, 125000UL, 250000UL};
+static const uint32_t BW_TABLE[RADIO_BW_INDEX_COUNT] = {UINT32_C(62500), UINT32_C(125000), UINT32_C(250000)};
 
 bool radioSfValid(uint8_t sf) {
   return sf >= RADIO_SF_MIN && sf <= RADIO_SF_MAX;
@@ -38,36 +38,36 @@ uint8_t  radioPreambleLen() { return s_pre; }
 
 // Ts = 2^SF / BW. Най-лошия случай 2^12 * 1e6 = 4.096e9 - събира се в uint32 (макс 4.29e9).
 uint32_t radioSymbolUs() {
-  return ((1UL << s_sf) * 1000000UL) / s_bw;
+  return ((UINT32_C(1) << s_sf) * UINT32_C(1000000)) / s_bw;
 }
 
 bool radioLdroNeeded() {
-  return radioSymbolUs() > 16000UL;
+  return radioSymbolUs() > UINT32_C(16000);
 }
 
 uint32_t radioToaMs(uint8_t payloadLen) {
   uint32_t ts = radioSymbolUs();
   int32_t de  = radioLdroNeeded() ? 2 : 0;
   // explicit header (IH=0): num = 8*PL - 4*SF + 28 + 16*CRC
-  int32_t num = 8L * payloadLen - 4L * s_sf + 28 + (s_crc ? 16 : 0);
-  int32_t den = 4L * ((int32_t)s_sf - de);
+  int32_t num = INT32_C(8) * payloadLen - INT32_C(4) * s_sf + 28 + (s_crc ? 16 : 0);
+  int32_t den = INT32_C(4) * ((int32_t)s_sf - de);
   int32_t blocks = num > 0 ? (num + den - 1) / den : 0;
-  uint32_t nSym = 8UL + (uint32_t)blocks * s_cr;   // (CR+4) == знаменателя 5..8
+  uint32_t nSym = UINT32_C(8) + (uint32_t)blocks * s_cr;   // (CR+4) == знаменателя 5..8
   // преамбюл: (n + 4.25) * Ts = (4n + 17) * Ts / 4
-  uint32_t preUs = ((4UL * s_pre + 17UL) * ts) / 4UL;
+  uint32_t preUs = ((UINT32_C(4) * s_pre + UINT32_C(17)) * ts) / UINT32_C(4);
   uint32_t totalUs = preUs + nSym * ts;
-  return (totalUs + 999UL) / 1000UL;
+  return (totalUs + UINT32_C(999)) / UINT32_C(1000);
 }
 
 // Един CAD трае ~ (2^SF + 32) / BW; вземаме двоен запас за SPI/polling + 5 ms.
 uint32_t radioCadTimeoutMs() {
-  uint32_t cadUs = (((1UL << s_sf) + 32UL) * 1000000UL) / s_bw;
-  return (2UL * cadUs + 999UL) / 1000UL + 5UL;
+  uint32_t cadUs = (((UINT32_C(1) << s_sf) + UINT32_C(32)) * UINT32_C(1000000)) / s_bw;
+  return (UINT32_C(2) * cadUs + UINT32_C(999)) / UINT32_C(1000) + UINT32_C(5);
 }
 
 uint32_t radioCadStepMs() {
   uint32_t t = radioCadTimeoutMs();
-  uint32_t fourTs = (4UL * radioSymbolUs() + 999UL) / 1000UL;
+  uint32_t fourTs = (UINT32_C(4) * radioSymbolUs() + UINT32_C(999)) / UINT32_C(1000);
   return t > fourTs ? t : fourTs;
 }
 
@@ -76,20 +76,20 @@ uint32_t radioTelemetryWaitMs() { return radioToaMs(RADIO_TELEMETRY_LEN); }
 uint32_t radioSlotMs()          { return radioCadStepMs(); }
 
 // (3 * x + 1) / 2 == ceil(1.5 * x)
-static uint32_t withMargin(uint32_t x) { return (3UL * x + 1UL) / 2UL; }
+static uint32_t withMargin(uint32_t x) { return (UINT32_C(3) * x + UINT32_C(1)) / UINT32_C(2); }
 
 // команда + пауза на Executor + ACK, x1.5, плюс по един срок за сондиране от двете страни
 uint32_t radioAckTimeoutCmdMs() {
   uint32_t base = radioToaMs(RADIO_CMD_WIRE_LEN) + RADIO_EXEC_ACK_DELAY_MS + radioToaMs(RADIO_ACK_WIRE_LEN);
-  return withMargin(base) + 2UL * radioSensingWindowMs();
+  return withMargin(base) + UINT32_C(2) * radioSensingWindowMs();
 }
 
 uint32_t radioAckTimeoutRestartMs() {
   uint32_t base = radioToaMs(RADIO_MAX_PAYLOAD_LEN) + RADIO_PROCESSING_MS + radioToaMs(RADIO_ACK_WIRE_LEN);
-  return withMargin(base) + 2UL * radioSensingWindowMs();
+  return withMargin(base) + UINT32_C(2) * radioSensingWindowMs();
 }
 
 uint32_t radioStateReqTimeoutMs() {
   uint32_t base = radioToaMs(RADIO_ACK_WIRE_LEN) + RADIO_PROCESSING_MS + radioToaMs(RADIO_MAX_PAYLOAD_LEN);
-  return withMargin(base) + 2UL * radioSensingWindowMs();
+  return withMargin(base) + UINT32_C(2) * radioSensingWindowMs();
 }

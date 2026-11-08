@@ -1,0 +1,28 @@
+1..19: коментар: общият протокол за криптиране на всички устройства: AES-128 в режим CTR плюс CMAC таг ("encrypt-then-MAC"), с един общ мрежов ключ. Wire форматът е байт по байт като в старата Arduino версия. Wire формат: `[senderId 6 B][ciphertext ptLen B][counter 4 B big-endian][tag 4 B]`. Nonce-ът се строи от type, senderId и counter, но typeId никога не се излъчва. Хардуерно AES на ESP32-S3 чрез mbedTLS; CMAC изисква `CONFIG_MBEDTLS_CMAC_C=y` ([[crypto]], [[wire]]).
+20: `#ifndef CRYPTO_COMMON_H`: [[header-guard]].
+21: дефинира `CRYPTO_COMMON_H`.
+23: `<stdint.h>`: [[uint]] типове.
+24: `<stddef.h>`: `size_t`.
+25: `<stdbool.h>`: `bool`.
+27: `CRYPTO_KEY_LEN` = 16: AES-128 ключът е 16 байта (128 бита).
+28: `CRYPTO_ID_LEN` = 6: дължина на идентификатора на подателя.
+29: `CRYPTO_CNT_LEN` = 4: броячът е 32-битово число = 4 байта.
+30: `CRYPTO_TAG_LEN` = 4: съкратеният CMAC таг е 4 байта (на CMAC е 16 B; пазим първите 4, за да е пакетът кратък).
+31: `CRYPTO_OVERHEAD` = 6 + 4 + 4 = 14: колко байта добавя протоколът към plaintext-а.
+32: коментар: най-големият plaintext е state response с 10 консуматора x 5 B = 50 B.
+33: `CRYPTO_MAX_PT` = 50.
+35: коментар: type-id-тата са вътрешни константи и не се излъчват, но влизат в nonce-а, за да не се преизползва nonce между различни видове пакети при еднакъв брояч.
+36: `CRYPTO_TYPE_SENSOR` = 1: данни от сензор.
+37: `CRYPTO_TYPE_REPEATER_HB` = 2: heartbeat на repeater.
+38: `CRYPTO_TYPE_EXEC_HB` = 3: heartbeat на executor.
+39: `CRYPTO_TYPE_EXEC_ACK` = 4: ACK/NACK от executor.
+40: `CRYPTO_TYPE_GW_CMD` = 5: команда от gateway.
+41: `CRYPTO_TYPE_STATE_REQ` = 6: gateway -> executor: заявка за състояния (празен plaintext).
+42: `CRYPTO_TYPE_STATE_RESP` = 7: executor -> gateway: отговор на изрична заявка.
+43: `CRYPTO_TYPE_STATE_RESP_RESTART` = 8: executor -> gateway: автоматичен отговор след boot.
+44: `CRYPTO_TYPE_STATE_RESP_ACK` = 9: gateway -> executor: потвърждение само за варианта RESTART.
+46..47: коментар: `cryptoBuildWirePacket` строи пакета; `wireBufOut` трябва да е поне `ptLen + 14`; връща общата дължина или 0 при грешка.
+48..50: декларация. Параметри: `wireBufOut` (изходен буфер), `key16` (ключ, 16 B), `typeId`, `senderId6` (6 B), `counter`, `plaintext`, `ptLen`. `const` значи, че функцията не променя входовете ([[const]]). Връща `uint8_t` (дължината).
+52..53: коментар: `cryptoParseWirePacket` разпарсва и проверява; `false` при невалиден MAC или дължина; `senderIdOut6` се попълва винаги (при дължина >= 14), а `plaintextOut` е валиден само при `true`.
+54..56: декларация: приема `wireBuf`, `wireLen`, `key16`, `typeId`; връща през `senderIdOut6`, `plaintextOut`, `ptLenOut` (параметри-изходи през указатели, [[pointer]]).
+58: `#endif`.

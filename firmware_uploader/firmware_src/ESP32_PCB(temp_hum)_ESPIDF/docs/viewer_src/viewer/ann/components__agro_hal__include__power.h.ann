@@ -1,0 +1,10 @@
+1..11: коментар: сензорът ползва дълбок сън (чипът се рестартира); executor и repeater ползват автоматичен лек сън: когато всички задачи чакат, FreeRTOS tickless idle и Power Management приспиват чипа и го будят от DIO1 или от най-близкия таймер. Изисква `CONFIG_PM_ENABLE=y` и `CONFIG_FREERTOS_USE_TICKLESS_IDLE=y`.
+12: `#ifndef AGRO_POWER_H`: [[header-guard]].
+13: дефинира `AGRO_POWER_H`.
+15: `<stdint.h>`: [[uint]] типове (за `uint64_t`).
+16: `<stdbool.h>`: типа `bool`.
+18..19: коментар за функцията по-долу.
+20: `power_enable_auto_light_sleep(int32_t wake_gpio)`: включва автоматичния [[lightsleep|лек сън]] и регистрира пина `wake_gpio` като източник за събуждане. Връща `false`, ако Power Management не е компилиран.
+22..23: коментар: дълбокият сън не връща; при събуждане чипът стартира от `app_main()`.
+24: `power_deep_sleep_us(uint64_t us)`: [[deepsleep|дълбок сън]] за `us` микросекунди, [[noreturn]].
+26: `#endif`.

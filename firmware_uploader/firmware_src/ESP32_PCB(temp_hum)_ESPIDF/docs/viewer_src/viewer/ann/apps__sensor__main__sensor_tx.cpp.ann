@@ -1,0 +1,67 @@
+1: включва `sensor_tx.h`.
+4: `<stddef.h>`: `offsetof` за проверка на подредбата на полетата.
+5: `<string.h>`: `memcpy`, `strnlen`.
+6: `agro_radio.h`: `radio_setup`, `radio_transmit`, `channelActive`, `radio` (SX1262).
+7: `ceiling_counter.h`: `CeilingCounter`.
+8: `channel_access.h`: автоматът за достъп до канала.
+9: `crypto_common.h`: `cryptoBuildWirePacket` и константите.
+10: `esp_log.h`: логове.
+11: `agro_hal.h`: `hal_delay_ms`, `hal_random`, `hal_millis`.
+12: `radio_timing.h`: времената (през `channel_access`).
+14: `TAG` за логовете.
+16: `SENSOR_RADIO_TRIES` = 5: най-много 5 опита за `radio.begin()` при събуждане; после сънят продължава до следващия цикъл (батерия).
+18: `static CeilingCounter s_txCounter;` брояч на пакетите (обект на класа) ([[ceiling]]). `static`: видим само тук.
+19: `static bool s_counterReady = false;` дали броячът е инициализиран в този цикъл на събуждане. При всяко събуждане RAM е нулирана, затова е `false`.
+21: `void sensor_tx_reset(void) { s_counterReady = false; }` принуждава нова инициализация на брояча (за тестове и при старт).
+23: `bool sensor_radio_init(const SensorConfig *c)`.
+24: `RadioParams p;` структурата с настройки за радиото.
+25: `p.freqHz = c->freqHz;` честотата в Hz (и двете са `uint32_t`).
+26: `p.sf = c->sf;`
+27: `p.bwHz = c->bwHz;`
+28: `p.txPowerDbm = c->txPowerDbm;`
+29: `return radio_setup(&p, SENSOR_RADIO_TRIES);` започва радиото с най-много 5 опита.
+30: затваря.
+32..33: коментар: компактен формат: 4 x int16 little-endian са plaintext-ът, който се криптира; S_ID НЕ е част от него, а пътува в чисто (wire формат) като идентификатор на подателя, нужен на gateway преди декриптиране.
+36: `struct __attribute__((packed)) SensorPacketData {` структура без запълване между полетата ([[packed]]): точно 8 байта.
+37: `int16_t S_T, S_H, A_T, A_H;` четирите стойности (температура и влажност на почвата и на въздуха).
+38: петото поле `BAT` (mV). Първите 8 байта са старият формат; при устройство без батерия се криптират само те.
+39: затваря.
+40: `static_assert(sizeof(SensorPacketData) == SENSOR_PT_LEN, "sensor plaintext трябва да е 8 B");` проверка по време на КОМПИЛАЦИЯ: ако размерът не е 8, компилацията спира със съобщението ([[static_assert]]).
+41: `static_assert(offsetof(...) == 8)`: проверява, че старият формат е ПРЕФИКС на новия, така че gateway-ят чете първите 8 байта еднакво и в двата случая.
+43: `bool sensor_send_packet(const SensorConfig *c, const SensorSample *s)`.
+44: ако няма id или ключ ...
+45: ... лог: не е конфигурирано ...
+46: ... `return false`.
+47: затваря.
+49: ако броячът още не е стартиран в този цикъл: `s_txCounter.begin("ceil")` и флаг ([[ceiling]]).
+51: `SensorPacketData pkt;` plaintext структурата.
+52: `pkt.S_T = s->s_t;` копира почвената температура.
+53: `pkt.S_H = s->s_h;`
+54: `pkt.A_T = s->a_t;`
+55: `pkt.A_H = s->a_h;`
+56: слага батерията в пакета (за устройство без батерия полето просто не се праща).
+57: `ptLen`: колко байта plaintext се криптират - 10 с батерия, 8 без (старият 22-байтов пакет по въздуха).
+59: `hal_delay_ms(hal_random(JITTER_MAX_MS));` случайно закъснение 0..999 ms: разминава предаванията на няколко сензора на една честота ([[jitter]]).
+61: лог на пакета: ID, четирите стойности и дължината на wire пакета (`CRYPTO_OVERHEAD + sizeof(pkt)` = 22).
+62: (продължение на лог аргументите).
+64: `uint8_t senderId[CRYPTO_ID_LEN] = {0};` 6 байта, нулирани.
+65: `memcpy(senderId, c->id, strnlen(c->id, CRYPTO_ID_LEN));` копира ID-то, но не повече от 6 символа; остатъкът остава нули.
+67: `uint32_t counter;` ще получи следващата стойност на брояча.
+68: `s_txCounter.next(&counter)`: взема стойност; при неуспех на NVS записа -> `return false` (повторен nonce е по-лошо от пропуснат пакет).
+70: `uint8_t wire[CRYPTO_OVERHEAD + sizeof(pkt)];` буфер за wire пакета: 22 байта.
+71: `cryptoBuildWirePacket(wire, c->key, CRYPTO_TYPE_SENSOR, senderId, counter, (const uint8_t *)&pkt, sizeof(pkt));` строи пакета: криптира plaintext-а, добавя брояч и таг. `(const uint8_t *)&pkt` е адресът на структурата, преобразуван към указател към байтове.
+72: (продължение на аргументите).
+73: ако върне 0 (грешка) -> лог и `return false`.
+75..77: коментар: listen-before-talk (телеметрия, PERSIST): един CAD; ако е зает, изчаква пауза (до срока = най-дългият възможен пакет), случаен слот и последен CAD; ако каналът е запушен целия срок, предава въпреки това (едно измерване е по-ценно от чистия ефир). Sensor няма друга работа, затова тук блокираме.
+78: `ChannelAccess ca;` състояние на автомата ([[fsm]]).
+79: `channelAccessStart(&ca, CH_POLICY_TELEMETRY_PERSIST);` започва.
+80: `uint8_t r;` резултат на стъпка.
+81: `while ((r = channelAccessPoll(&ca, hal_millis(), channelActive, channelRandom)) == CH_WAIT) {` вика автомата и присвоява резултата в `r`; цикълът продължава, докато резултатът е `CH_WAIT`. Подава `channelActive` (функцията за CAD) и `channelRandom` като указатели към функции ([[func-pointer]]).
+82: `uint32_t w = channelAccessNextMs(&ca, hal_millis());` колко ms до следващата смислена проверка.
+83: `hal_delay_ms(w > 0 ? w : 1);` заспива за `w` ms (поне 1), като отстъпва процесора.
+84: затваря цикъла. Излиза, когато `r` е `CH_CLEAR` или `CH_GIVEUP`; при PERSIST политика `CH_GIVEUP` не се връща.
+86: `bool ok = radio_transmit(wire, wireLen);` излъчва пакета.
+87: при провал лог.
+88: `radio.sleep(false);` приспива радиото (най-малък ток); `false` = без запазване на конфигурацията (при следващото събуждане `begin()` прави пълна инициализация).
+89: `return ok;`
+90: затваря.

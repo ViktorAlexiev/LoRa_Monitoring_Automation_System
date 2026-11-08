@@ -1,0 +1,21 @@
+1: `#ifndef EXEC_CONFIG_H`: [[header-guard]].
+2: дефинира го.
+4: `<stdint.h>`.
+5: `<stdbool.h>`.
+6: `consumers.h`: `ConsumerSet`.
+7: `protocol.h`: `MODULE_ID_LEN`, `CRYPTO_KEY_LEN`.
+9: `struct ExecConfig {` настройките на executor-а ([[struct]]).
+10: `char id[MODULE_ID_LEN + 1];` ID.
+11: `uint32_t freqHz;` честотата.
+12: `uint8_t sf;`
+13: `uint32_t bwHz;`
+14: `int8_t txPowerDbm;` мощност от NVS `txp`.
+15: `uint8_t key[CRYPTO_KEY_LEN];` ключът.
+16: `bool hasKey;`
+17: `bool hasId;`
+18: полето `hasBattery`: heartbeat-ът носи батерията (16 B вместо 14 B).
+19: `ConsumerSet consumers;` списъкът консуматори (вложена структура).
+20: затваря.
+22: коментар: NVS (пространство `cfg`): `id`, `nc`, `c<i>i` (ID), `c<i>p` (GPIO), `freq`, `sf`, `bw`, `key`.
+23: `void exec_config_load(ExecConfig *c);`
+25: `#endif`.

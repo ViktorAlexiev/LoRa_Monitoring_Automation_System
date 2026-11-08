@@ -1,0 +1,31 @@
+1..12: коментар: `gw_logic` е логиката на gateway: задачата `gw_cmd` (ядро 0, до Wi-Fi/MQTT стека). Държи състоянието на командите "в полет" (команда, state request), ACK таймаутите и повторенията и публикува в MQTT. Получава ВСИЧКО през ЕДНА опашка (`gwInQ`): валидирани радио събития от `gw_radio` и MQTT съобщения от задачата на esp-mqtt. Така няма общи променливи между ядрата, само опашки. Теми като в Arduino версията (бекендът не се променя): входящи с QoS 1 `commands` и `module_states_requests`; изходящи `sensors` и `heartbeat` (QoS 0), `commands_status` и `module_states_response` (QoS 1). Нищо не е retained; не се публикува без връзка.
+13: `#ifndef GW_LOGIC_H`: [[header-guard]].
+14: дефинира го.
+16: `<stddef.h>`.
+17: `<stdint.h>`.
+18: `freertos/FreeRTOS.h`.
+19: `freertos/queue.h`.
+20: `freertos/task.h`.
+21: `gw_config.h`.
+22: `gw_types.h`.
+24: `TOPIC_SENSORS` = "sensors": тема за данни от сензори.
+25: `TOPIC_HEARTBEAT` = "heartbeat".
+26: `TOPIC_COMMANDS` = "commands": входяща тема за команди.
+27: `TOPIC_COMMANDS_STATUS` = "commands_status": статус на команда.
+28: `TOPIC_STATE_REQ` = "module_states_requests": входяща заявка.
+29: `TOPIC_STATE_RESP` = "module_states_response": изходящ отговор.
+31: `MAX_RETRIES` = 2: команда или state request: до 2 повторения.
+32: `GW_HEARTBEAT_INTERVAL_MS` = (UINT32_C(30) * UINT32_C(1000)): heartbeat на gateway на всеки 30 s.
+33: `GW_LOGIC_MAX_WAIT_MS` = UINT32_C(5000): най-дълго блокиране на задачата (watchdog).
+35: `gw_logic_reset(cfg, gwInQ, radioInQ)`.
+36: `gw_logic_set_radio_task(t)`: за известяване на радио задачата.
+38: коментар: колбек на esp-mqtt (контекст на MQTT задачата): само слага в опашката.
+39: `void gw_mqtt_on_message(topic, data, len, ctx);` ([[func-pointer]]: подава се на `MqttLinkConfig.onMessage`).
+41: `void gw_logic_handle(const GwMsg &m);` обработва едно съобщение от опашката.
+42: `void gw_logic_tick(void);` таймаути, повторения, heartbeat.
+43: `uint32_t gw_logic_next_wait_ms(void);` до следващия срок.
+45: `void gw_logic_task(void *arg);` тялото на задачата.
+47: коментар: за наблюдение и тестове.
+48: `bool gw_cmd_pending(void);` има ли команда в полет.
+49: `bool gw_state_req_pending(void);` има ли state request в полет.
+51: `#endif`.

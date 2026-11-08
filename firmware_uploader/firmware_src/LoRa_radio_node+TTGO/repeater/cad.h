@@ -14,10 +14,21 @@
 #define OP_MODE_LORA_CAD   0x87   // LongRangeMode бит + CAD mode (0b111)
 #define IRQ_CAD_DONE       0x04
 #define IRQ_CAD_DETECTED   0x01
+#define IRQ_TX_DONE        0x08
+#define IRQ_RX_DONE        0x40
 #define MODEM_CONFIG_3_LDRO 0x08  // бит 3 - LowDataRateOptimize
 
-// true = каналът е зает точно сега (не предавай)
+// true = в чипа чака непрочетен пакет (RxDone). Не започвай CAD и не сменяй режима, докато не е прочетен с
+// LoRa.parsePacket(): излизането от приемане и чистенето на флаговете го унищожават.
+bool radioRxPending();
+
+// true = каналът е зает точно сега (не предавай). При непрочетен пакет връща true, без да пипа радиото. Чисти САМО
+// флаговете на CAD (не 0xFF), за да не изтрие чужд RxDone.
 bool channelActive();
+
+// Предава пакета АСИНХРОННО и чака TxDone с таймаут (въздушно време x1.25 + 100 ms). LoRa.endPacket() без async няма
+// таймаут и виси завинаги при чип, който не вдигне TxDone. true = предадено; при таймаут радиото се връща в standby.
+bool loraTransmit(const uint8_t *buf, uint8_t len);
 
 // Задава/маха Low Data Rate Optimization директно в RegModemConfig3.
 void radioSetLowDataRateOptimize(bool on);

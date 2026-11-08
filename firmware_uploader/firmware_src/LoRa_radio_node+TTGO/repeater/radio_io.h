@@ -24,12 +24,12 @@
 // хоп е на друга лента), така че loop е физически невъзможен, а препратеният пакет остава
 // байт по байт идентичен с оригинала (dedup на следващото ниво го хваща точно).
 
-#define LORA_BEGIN_RETRY_MSG_MS  10000UL   // интервал между диагностични съобщения при неуспешен LoRa.begin()
+#define LORA_BEGIN_RETRY_MSG_MS  UINT32_C(10000)   // интервал между диагностични съобщения при неуспешен LoRa.begin()
 
 void radio_setup();       // LoRa.setPins/begin/params, влиза в RX режим
 void enter_rx_mode();
 
-void receive_and_queue(int len);       // приема, dedup проверка, слага в forward опашката
+void receive_and_queue(uint8_t len);       // приема, dedup проверка, слага в forward опашката
 void process_pending_forwards();       // неблокиращ достъп до канала + изпращане на узрелите
 bool any_forward_pending();
 

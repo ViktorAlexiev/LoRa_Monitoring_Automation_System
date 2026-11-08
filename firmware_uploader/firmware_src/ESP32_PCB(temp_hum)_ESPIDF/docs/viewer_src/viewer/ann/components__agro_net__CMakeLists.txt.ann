@@ -1,0 +1,1 @@
+1..4: `idf_component_register(...)` ([[component]]) за `agro_net`: два .cpp файла (`wifi_link.cpp`, `mqtt_link.cpp`), публична папка `include`; зависимости: наши `agro_hal` и `agro_core`, и на ESP-IDF `esp_wifi`, `esp_netif`, `esp_event`, `mqtt` (клиентът esp-mqtt), `nvs_flash` (Wi-Fi драйверът го ползва за калибриране) и `log`.

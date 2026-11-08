@@ -1,0 +1,8 @@
+1: `CONFIG_IDF_TARGET="esp32s3"`: целевият чип е ESP32-S3. `sdkconfig.defaults` е файл с началните стойности на настройките на ESP-IDF (Kconfig); `idf.py` ги прилага при първото конфигуриране ([[sdkconfig]]).
+2: `CONFIG_FREERTOS_HZ=1000`: един тик на FreeRTOS е 1 ms (1000 тика в секунда). EspHal на RadioLib и `pdMS_TO_TICKS` разчитат на това.
+3: `CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096`: стекът на главната задача (`app_main`) е 4096 байта.
+4: `CONFIG_MBEDTLS_CMAC_C=y`: включва CMAC в mbedTLS (по подразбиране е изключен); нужен за тага на пакетите.
+5: `CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y`: flash паметта е 4 MB.
+6: коментар: sensor не ползва Wi-Fi; дълбокият сън е в кода (`power_deep_sleep_us`).
+7: коментар: без Task Watchdog по желание на заданието: иначе IDF го пуска по подразбиране (5 s, само предупреждение).
+8: `CONFIG_ESP_TASK_WDT_INIT=n`: не стартира автоматично Task Watchdog ([[watchdog]]).

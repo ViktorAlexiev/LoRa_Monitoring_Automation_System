@@ -6,28 +6,32 @@
 #include "cad.h"
 #include "channel_access.h"
 #include "radio_timing.h"
+#include "debug_log.h"
+#include "power_mgmt.h"
 
-void lora_init() {
+bool lora_init() {
   // времената (CAD, изчакване) се извеждат от SF/BW, прочетени от EEPROM
   radioTimingInit(LORA_SF, LORA_BW_HZ, LORA_CR_DENOM, LORA_PREAMBLE_LEN, true);
 
   LoRa.setPins(LORA_NSS, LORA_RST, LORA_DIO0);
 
-  // честотата вече идва от EEPROM (config пакет), не hardcoded. Ако модулът не отговори,
-  // остава в цикъл с периодично Serial съобщение (сериен дебъг на терен), вместо да
-  // продължи напред все едно всичко е наред (LoRa.begin() резултатът се проверява).
-  unsigned long lastMsg = 0;
+  // честотата вече идва от EEPROM (config пакет), не hardcoded. LoRa.begin() резултатът се проверява: при мъртъв
+  // модул след SENSOR_RADIO_TRIES опита се отказваме (false), вместо да висим и да изтощим батерията.
+  uint8_t tries = 0;
   while (!LoRa.begin(LORA_FREQ_HZ)) {
-    if (millis() - lastMsg >= LORA_BEGIN_RETRY_MSG_MS) {
-      Serial.println(F("[ERR] LoRa не стартира (LoRa.begin провал), продължавам да опитвам..."));
-      lastMsg = millis();
+    if (++tries >= SENSOR_RADIO_TRIES) {
+      DBGLN(F("[ERR] LoRa не стартира след 5 опита - пропускам този цикъл"));
+      return false;
     }
+    wdt_feed();
+    delay(200);
   }
 
   radioApplyModemSettings();   // SF, BW, CR, преамбюл + LDRO (по реалното Ts)
   LoRa.setTxPower(LORA_TX_POWER_DBM);
   LoRa.setSyncWord(LORA_SYNC_WORD);
   LoRa.enableCrc();
+  return true;
 }
 
 // Компактен формат: 4 x int16 (little-endian, native на AVR) са plaintext-ът, който се
@@ -43,6 +47,9 @@ struct __attribute__((packed)) myPacketData {
   int16_t A_T;
   int16_t A_H;
 };
+// Форматът по въздуха е ИДЕНТИЧЕН с ESP-IDF прошивката (gateway-ят е един): plaintext 8 B, wire 22 B.
+static_assert(sizeof(myPacketData) == 8, "sensor plaintext: 4 x int16 little-endian, packed");
+static_assert(CRYPTO_OVERHEAD + sizeof(myPacketData) == 22, "sensor wire: id(6) + ciphertext(8) + counter(4) + tag(4)");
 
 // float -> int16 x100. 255.0f е маркерът за грешка от sensors_io -> SENSOR_RAW_NODATA.
 // Реалните стойности са в -40..100 (SHT), т.е. -4000..10000 - далеч от границите на int16.
@@ -58,16 +65,14 @@ void send_sensor_packet(float s_t, float s_h, float a_t, float a_h) {
   pkt.A_T = encodeCompact(a_t);
   pkt.A_H = encodeCompact(a_h);
 
-  delay(random(0, JITTER_MAX_MS));   // jitter - разминава TX-а с други sensor-и на честотата
-
-  Serial.print(F("TX S_ID=")); Serial.print(SENSOR_ID);
-  Serial.print(F(" S_T=")); Serial.print(s_t);
-  Serial.print(F(" S_H=")); Serial.print(s_h);
-  Serial.print(F(" A_T=")); Serial.print(a_t);
-  Serial.print(F(" A_H=")); Serial.print(a_h);
-  Serial.print(F(" (wire ")); Serial.print((int)(CRYPTO_OVERHEAD + sizeof(myPacketData)));
-  Serial.println(F(" B)"));
-  Serial.flush();
+  DBG(F("TX S_ID=")); DBG(SENSOR_ID);
+  DBG(F(" S_T=")); DBG(s_t);
+  DBG(F(" S_H=")); DBG(s_h);
+  DBG(F(" A_T=")); DBG(a_t);
+  DBG(F(" A_H=")); DBG(a_h);
+  DBG(F(" (wire ")); DBG((uint8_t)(CRYPTO_OVERHEAD + sizeof(myPacketData)));
+  DBGLN(F(" B)"));
+  DBG_FLUSH();
 
   uint8_t wireBuf[CRYPTO_OVERHEAD + sizeof(myPacketData)];
   uint8_t wireLen = cryptoBuildWirePacket(wireBuf, NETWORK_KEY, CRYPTO_TYPE_SENSOR,
@@ -80,11 +85,10 @@ void send_sensor_packet(float s_t, float s_h, float a_t, float a_h) {
   ChannelAccess ca;
   channelAccessStart(&ca, CH_POLICY_TELEMETRY_FORCE);
   while (channelAccessPoll(&ca, millis(), channelActive, channelRandom) == CH_WAIT) {
+    wdt_feed();
     delay(1);
   }
 
-  LoRa.beginPacket();
-  LoRa.write(wireBuf, wireLen);
-  LoRa.endPacket();
+  if (!loraTransmit(wireBuf, wireLen)) DBGLN(F("[ERR] предаването не приключи (таймаут)"));   // endPacket() без таймаут би висял
   LoRa.sleep();
 }

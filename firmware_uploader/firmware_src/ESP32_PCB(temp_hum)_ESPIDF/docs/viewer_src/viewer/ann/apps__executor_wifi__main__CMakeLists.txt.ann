@@ -1,0 +1,1 @@
+1..4: `idf_component_register(...)` ([[component]]): три файла; `INCLUDE_DIRS "."`; `REQUIRES`: `agro_hal`, `agro_core`, `agro_net`, `agro_board`, `freertos`, `log`. Няма `agro_radio`: този модул не ползва LoRa.

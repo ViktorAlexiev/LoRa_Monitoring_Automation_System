@@ -1,0 +1,6 @@
+1: коментар: това е ESP-IDF проект `sensor`. Билдът е `idf.py set-target esp32s3 && idf.py build` от път БЕЗ интервали (CMake и ESP-IDF не обичат интервали в пътя).
+2: `cmake_minimum_required(VERSION 3.16)`: изисква CMake поне 3.16.
+3: `set(EXTRA_COMPONENT_DIRS ...)`: казва на ESP-IDF да търси компоненти и в общата папка `components` (две нива нагоре). `${CMAKE_CURRENT_LIST_DIR}` е папката на този файл. Така всички приложения споделят едни и същи компоненти ([[component]]).
+4: `include($ENV{IDF_PATH}/tools/cmake/project.cmake)`: зарежда системата за билд на ESP-IDF; `$ENV{IDF_PATH}` е променливата на средата, която сочи към инсталацията на ESP-IDF.
+5: включва `radiolib_options.cmake`: изключва ненужните драйвери на RadioLib. Трябва след `project.cmake` и преди `project()`.
+6: `project(agro_sensor)`: задава името на проекта (име на бинарния файл `agro_sensor.bin`).

@@ -7,7 +7,7 @@ bool consumerExists(const char* c_id) {
   return false;
 }
 
-int consumerIndex(const char* c_id) {
+int8_t consumerIndex(const char* c_id) {
   for (uint8_t i = 0; i < NUM_CONSUMERS; i++)
     if (strncmp(consumerList[i], c_id, 4) == 0) return i;
   return -1;

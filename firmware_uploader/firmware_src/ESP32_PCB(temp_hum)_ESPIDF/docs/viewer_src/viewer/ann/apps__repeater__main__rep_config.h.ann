@@ -1,0 +1,23 @@
+1: `#ifndef REP_CONFIG_H`: [[header-guard]].
+2: дефинира го.
+4: `<stdint.h>`: [[uint]].
+5: `<stdbool.h>`: `bool`.
+6: `protocol.h`: `MODULE_ID_LEN`, `CRYPTO_KEY_LEN`.
+8: коментар: честотите по подразбиране са резервен вариант, ако NVS е празен.
+9: `LORA_FREQ_RX_DEFAULT_HZ` = UINT32_C(434000000): приемната честота по подразбиране (434 MHz). `UINT32_C(...)` = константа точно 32-битова без знак.
+10: `LORA_FREQ_TX_DEFAULT_HZ` = UINT32_C(433000000): предавателната (433 MHz).
+12: `struct RepConfig {` настройките на repeater-а ([[struct]]).
+13: `char id[MODULE_ID_LEN + 1];` ID (6 символа и нула).
+14: `uint32_t freqRxHz;` приемната честота: лентата на подателите (sensor-и и repeater-и от по-далечното ниво).
+15: `uint32_t freqTxHz;` предавателната: лентата по-близо до gateway-а.
+16: `uint8_t sf;`
+17: `uint32_t bwHz;`
+18: `int8_t txPowerDbm;` мощност от NVS `txp`.
+19: `uint8_t key[CRYPTO_KEY_LEN];` ключът.
+20: `bool hasKey;`
+21: `bool hasId;`
+22: полето `hasBattery`: heartbeat-ът носи батерията (16 B вместо 14 B).
+23: затваря.
+25: коментар: NVS (пространство `cfg`): `id`, `freq` (RX), `freqtx` (TX), `sf`, `bw`, `key`.
+26: `void rep_config_load(RepConfig *c);`
+28: `#endif`.

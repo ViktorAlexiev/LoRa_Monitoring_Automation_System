@@ -1,0 +1,53 @@
+1..20: коментар: тънък слой над cJSON. `JsonDoc` разбира текст и е валиден само ако текстът е точно един JSON обект без остатък; отрязан или повреден ред се отхвърля цял; вложеност над `JSON_MAX_DEPTH` се отхвърля ПРЕДИ разбора, защото cJSON е рекурсивна, а стековете на задачите са малки. `jsonField` връща стойност-низ на ключ и различава "липсва" от "не се побира в буфера" (не реже тихо: отрязан M_ID може да съвпадне с друг модул). `JsonOut` строи JSON дърво и го печата в буфер на извикващия (`cJSON_PrintPreallocated`: без втори heap буфер); при неуспех `ok()` е `false`; числата с десетични знаци се подават като цели стотни (`fixed2`). cJSON заделя памет с `malloc`; деструкторите я освобождават. Ползва се само в gateway, executor_wifi и config ([[json]]).
+21: `#ifndef AGRO_JSON_UTIL_H`: [[header-guard]].
+22: дефинира го.
+24: `<stddef.h>`: `size_t`.
+25: `<stdint.h>`: [[uint]].
+26: `<stdbool.h>`: `bool`.
+28: `cJSON.h`: библиотеката cJSON.
+30: `JSON_MAX_DEPTH` = 8: най-големият позволен брой вложени `{`/`[`.
+32: `class JsonDoc {`: разбран JSON документ ([[class]]).
+33: `public:`.
+34: `JsonDoc(const char *text, size_t len);` конструктор: разбира `len` байта от `text`.
+35: `~JsonDoc();` деструктор: освобождава дървото ([[raii]]).
+36: `JsonDoc(const JsonDoc &) = delete;` забранява копиране на обекта: иначе два обекта биха освободили едно и също дърво (двойно освобождаване) ([[delete-copy]]).
+37: `JsonDoc &operator=(const JsonDoc &) = delete;` забранява и присвояването.
+39: `bool valid() const { return root_ != nullptr; }` валиден е само ако дървото е създадено. `const` накрая: методът не променя обекта. Дефиниран е в класа, затова е `inline`.
+40: `const cJSON *root() const { return root_; }` връща указател към корена; `const` пред типа значи "само за четене".
+42: `private:`.
+43: `cJSON *root_;` коренът на дървото (или `nullptr`). Суфиксът `_` е за член на клас ([[naming]]).
+44: затваря класа.
+46: `enum JsonField { JSON_FIELD_MISSING, JSON_FIELD_OK, JSON_FIELD_TOO_LONG };` изброим тип с три стойности: ключът липсва или не е низ; успех; не се побира в буфера ([[enum]]). Стойностите са 0, 1, 2.
+48: коментар: `out` е винаги валиден низ (празен при MISSING или TOO_LONG).
+49: `JsonField jsonField(const cJSON *obj, const char *key, char *out, size_t cap);` чете низ от обект.
+51: `inline bool jsonGetString(...)` е удобна обвивка: `true` само ако резултатът е `JSON_FIELD_OK`.
+52: `return jsonField(...) == JSON_FIELD_OK;`
+53: затваря.
+55: `class JsonOut {`: строител на изходен JSON.
+56: `public:`.
+57: `JsonOut();` конструктор.
+58: `~JsonOut();` деструктор.
+59: забранено копиране.
+60: забранено присвояване.
+62: `JsonOut &beginObject();` започва обект (на най-горно ниво веднъж, или елемент на масив). Връща референция към себе си (`JsonOut &`), за да може да се верижат извиквания: `j.beginObject().str(...).num(...)` ([[chaining]]).
+63: `endObject()`: затваря обект.
+64: `beginArray(const char *key)`: започва масив със зададен ключ.
+65: `endArray()`: затваря масив.
+67: `str(key, val)`: добавя низ.
+68: `num(key, int32_t v)`: добавя цяло число със знак.
+69: `unum(key, uint32_t v)`: цяло без знак.
+70: `fixed2(key, hundredths)`: добавя число с два знака след десетичната точка от стотни: 2257 -> 22.57, -5 -> -0.05.
+71: `boolean(key, v)`: `true`/`false`.
+73: `bool ok() const { return ok_ && root_ != nullptr; }` дървото е цяло и има корен.
+75: коментар: `print` печата компактно в `buf` с терминатор; `false`, ако дървото е неуспешно или не се побира; `*outLen` е дължината.
+76: `bool print(char *buf, size_t cap, size_t *outLen = nullptr);` третият параметър е по избор (стойност по подразбиране `nullptr`).
+78: `private:`.
+79: `cJSON *cur() const { return depth_ > 0 ? stack_[depth_ - 1] : nullptr; }` текущият (най-вътрешният) отворен възел: върхът на стека; `nullptr` при празен стек.
+80: `bool push(cJSON *c);` добавя възел върху стека.
+81: `void fail() { ok_ = false; }` маркира, че строежът е неуспешен.
+83: `cJSON *root_;` коренът.
+84: `cJSON *stack_[JSON_MAX_DEPTH];` стек от отворените обекти/масиви; най-много 8.
+85: `int32_t depth_;` колко възела са на стека.
+86: `bool ok_;` флаг за успех.
+87: затваря класа.
+89: `#endif`.

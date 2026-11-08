@@ -1,0 +1,35 @@
+1..10: коментар: executor (ESP-IDF, LoRa) приема команди от gateway по радио, превключва консуматори (GPIO), потвърждава с ACK/NACK, праща heartbeat и автоматичен state response след boot. Две задачи на ядро 1: `exec_radio` (приоритет 6) е единственият собственик на радиото, събужда се от DIO1, срок или заявка; `exec_cmd` (приоритет 5) изпълнява командите и заявява ACK. Heartbeat: `esp_timer` на ~5 минути. Когато всички задачи чакат, FreeRTOS tickless idle и Power Management приспиват чипа.
+11: `board_pins.h`: `LORA_DIO1`.
+13: `esp_log.h`.
+14: `exec_cmd.h`.
+15: `exec_config.h`.
+16: `consumers.h`.
+17: `exec_radio.h`.
+18: `agro_hal.h`.
+19: включва `board_power.h`.
+20: `power.h`.
+22: `TAG`.
+24: `static ExecConfig s_cfg;` статична: задачите държат указател към нея и тя трябва да живее вечно.
+26: `extern "C" void app_main(void) {` входната точка ([[extern-c]]).
+27: `board_power_init()`: освобождава пиновете и ги прави LOW.
+28: executor: интерфейсите (консуматорите) се включват в началото и остават включени постоянно.
+29: `hal_nvs_init();`
+30: `exec_config_load(&s_cfg);` чете конфигурацията.
+32..33: коментар: всички консуматори са изключени при (ре)стартиране: съзнателно безопасно състояние; бекендът го вижда чрез автоматичния state response след boot.
+34: `consumers_init(&s_cfg.consumers);` превръща пиновете в изходи, изключени.
+36: ако няма ID или ключ ...
+37: ... лог ...
+38: ... `return`: радиото не стартира, консуматорите остават изключени.
+39: затваря.
+41: `QueueHandle_t cmdQ = xQueueCreate(8, sizeof(CommandPacket));` опашка за 8 команди: радио -> изпълнение ([[queue]]).
+42: `ackInQ`: опашка за 8 `AckReq`: изпълнение -> радио.
+44: `exec_radio_reset(&s_cfg, cmdQ, ackInQ);`
+46: `TaskHandle_t radioTask = nullptr;`
+47: `xTaskCreatePinnedToCore(exec_radio_task, "exec_radio", 5120, nullptr, 6, &radioTask, 1);` създава радио задачата със стек 5120 B, приоритет 6, на ядро 1; `&radioTask` получава дръжката ([[freertos-task]]).
+50: `exec_radio_set_task(radioTask);` казва на радио слоя коя е задачата му (за известяване).
+51: `exec_cmd_init(&s_cfg, cmdQ, ackInQ, radioTask);`
+52: създава задачата `exec_cmd` със стек 3072 B, приоритет 5.
+56: включва автоматичния лек сън с DIO1 като източник.
+58: лог "готов".
+59: (продължение).
+60: затваря.

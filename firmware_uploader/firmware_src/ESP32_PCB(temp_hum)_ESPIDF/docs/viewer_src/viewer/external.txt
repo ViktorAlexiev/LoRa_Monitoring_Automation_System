@@ -1,0 +1,710 @@
+## uint8_t | uint8_t: 8-битово число без знак (0..255)
+Тип от `<stdint.h>`. Най-често за байт, буфер и 1-байтово поле. Виж [[uint]].
+
+## uint16_t | uint16_t: 16-битово без знак (0..65535)
+Тип от `<stdint.h>`. Използва се за порт (0..65535) и дължини.
+
+## uint32_t | uint32_t: 32-битово без знак
+Тип от `<stdint.h>`. За време в ms (`hal_millis`), честота в Hz, брояч на nonce.
+
+## uint64_t | uint64_t: 64-битово без знак
+Тип от `<stdint.h>`. За микросекунди (`hal_micros`) и 64-битови маски (GPIO).
+
+## int8_t | int8_t: 8-битово със знак (-128..127)
+Тип от `<stdint.h>`. Тук за мощност в dBm (-9..22).
+
+## int16_t | int16_t: 16-битово със знак (-32768..32767)
+Тип от `<stdint.h>`. За стойности x100 от сензора; -32768 е "няма данни".
+
+## int32_t | int32_t: 32-битово със знак
+Тип от `<stdint.h>`. Ползва се и за сравнение на време `(int32_t)(now - t)` ([[wraparound]]).
+
+## int64_t | int64_t: 64-битово със знак
+Тип от `<stdint.h>`. `esp_timer_get_time()` връща `int64_t` (микросекунди).
+
+## size_t | size_t: размер в байтове
+Тип без знак от `<stddef.h>`: резултатът на `sizeof` и размерите на буфери.
+
+## NULL | NULL
+Старото означение за "указател към нищо" (в C). В C++ се предпочита `nullptr`.
+
+## BaseType_t | BaseType_t
+Основният целочислен тип на FreeRTOS за резултати и флагове (`pdTRUE`/`pdFALSE`).
+
+## pdTRUE | pdTRUE / pdFALSE
+Константи на FreeRTOS за успех/неуспех: `pdTRUE` = 1, `pdFALSE` = 0. Резултат на `xQueueSend`, `xQueueReceive`, `xSemaphoreTake`.
+
+## pdFALSE | pdTRUE / pdFALSE
+Виж `pdTRUE`: константа 0, неуспех или "не".
+
+## portMAX_DELAY | portMAX_DELAY
+Най-голямата стойност на таймаут във FreeRTOS: чака безкрайно.
+
+## pdMS_TO_TICKS | pdMS_TO_TICKS(ms)
+Макрос: превръща милисекунди в тикове на FreeRTOS ([[tick]]).
+
+## taskYIELD | taskYIELD()
+Отстъпва процесора на друга задача със същия приоритет.
+
+## vTaskDelay | vTaskDelay(тикове)
+Блокира текущата задача за зададения брой тикове. Докато чака, процесорът е свободен за други задачи.
+
+## xTaskCreatePinnedToCore | xTaskCreatePinnedToCore(...)
+Създава задача на конкретно ядро на ESP32. Параметри: функция, име, стек в байтове, аргумент, приоритет, дръжка (изход), ядро ([[freertos-task]]).
+
+## xTaskGetCurrentTaskHandle | xTaskGetCurrentTaskHandle()
+Връща дръжката на текущата задача (за да може ISR или друга задача да я буди).
+
+## xTaskNotifyGive | xTaskNotifyGive(задача)
+Известява задача (увеличава брояча на известията ѝ), за да излезе от `ulTaskNotifyTake`. Виж [[notify]].
+
+## vTaskNotifyGiveFromISR | vTaskNotifyGiveFromISR(задача, &woken)
+Версията на `xTaskNotifyGive`, позволена в прекъсване. Във `woken` връща дали е събудена задача с по-висок приоритет ([[isr]]).
+
+## ulTaskNotifyTake | ulTaskNotifyTake(изчисти, таймаут)
+Блокира, докато броячът на известията стане ненулев или изтече таймаутът. `pdTRUE` нулира брояча при връщане. Връща стойността на брояча (0 при таймаут).
+
+## portYIELD_FROM_ISR | portYIELD_FROM_ISR(woken)
+В края на ISR: ако `woken` е `pdTRUE`, превключва веднага към събудената задача с по-висок приоритет.
+
+## portNUM_PROCESSORS | portNUM_PROCESSORS
+Брой на ядрата на процесора (2 на ESP32-S3).
+
+## QueueHandle_t | QueueHandle_t
+Дръжка на опашка във FreeRTOS ([[queue]]).
+
+## SemaphoreHandle_t | SemaphoreHandle_t
+Дръжка на семафор или mutex ([[mutex]]).
+
+## TaskHandle_t | TaskHandle_t
+Дръжка на задача ([[freertos-task]]).
+
+## xQueueCreate | xQueueCreate(брой, размер)
+Създава опашка за `брой` елемента по `размер` байта; връща дръжка или `NULL` при неуспех ([[queue]]).
+
+## xQueueSend | xQueueSend(q, &елемент, таймаут)
+Копира елемента в края на опашката. `pdTRUE` при успех, `errQUEUE_FULL`, ако няма място в рамките на таймаута.
+
+## xQueueReceive | xQueueReceive(q, &елемент, таймаут)
+Взема елемент от началото на опашката (копира го). Блокира до таймаута. `pdTRUE` при успех.
+
+## xSemaphoreCreateMutex | xSemaphoreCreateMutex()
+Създава mutex с наследяване на приоритет ([[mutex]]).
+
+## xSemaphoreTake | xSemaphoreTake(m, таймаут)
+Взема mutex-а; ако е зает, блокира до таймаута.
+
+## xSemaphoreGive | xSemaphoreGive(m)
+Освобождава mutex-а.
+
+## IRAM_ATTR | IRAM_ATTR
+Атрибут, който поставя функцията във вътрешната RAM ([[iram]]).
+
+## RTC_DATA_ATTR | RTC_DATA_ATTR
+Атрибут, който поставя променливата в RTC паметта ([[rtc-data]]).
+
+## ESP_OK | ESP_OK
+Резултат 0 на функциите на ESP-IDF: успех ([[esp_err]]).
+
+## esp_err_t | esp_err_t
+Тип на кода за грешка на ESP-IDF ([[esp_err]]).
+
+## esp_err_to_name | esp_err_to_name(e)
+Превръща `esp_err_t` в текст (напр. "ESP_ERR_INVALID_STATE").
+
+## ESP_ERR_INVALID_STATE | ESP_ERR_INVALID_STATE
+Код: операцията не е позволена в текущото състояние (например услугата вече е инсталирана).
+
+## ESP_ERR_NVS_NO_FREE_PAGES | ESP_ERR_NVS_NO_FREE_PAGES
+NVS няма свободни страници: трябва изтриване.
+
+## ESP_ERR_NVS_NEW_VERSION_FOUND | ESP_ERR_NVS_NEW_VERSION_FOUND
+NVS е записан от по-нова версия на формата.
+
+## ESP_LOGE | ESP_LOGE(TAG, формат, ...)
+Лог на ниво грешка. Виж [[esp_log]].
+
+## ESP_LOGW | ESP_LOGW(TAG, формат, ...)
+Лог на ниво предупреждение. Виж [[esp_log]].
+
+## ESP_LOGI | ESP_LOGI(TAG, формат, ...)
+Лог на ниво информация. Виж [[esp_log]].
+
+## ESP_LOGD | ESP_LOGD(TAG, формат, ...)
+Лог на ниво отстраняване (по подразбиране не се показва). Виж [[esp_log]].
+
+## esp_timer_get_time | esp_timer_get_time()
+Микросекунди от старта на системата като `int64_t`. Продължава да върви и в лек сън.
+
+## esp_timer_create | esp_timer_create(&args, &handle)
+Създава софтуерен таймер със колбек (изпълнява се в задачата `esp_timer`, затова колбекът трябва да е кратък).
+
+## esp_timer_create_args_t | esp_timer_create_args_t
+Структура с настройки на таймер: `callback`, `arg`, `name`.
+
+## esp_timer_handle_t | esp_timer_handle_t
+Дръжка на таймер.
+
+## esp_timer_start_once | esp_timer_start_once(таймер, µs)
+Стартира еднократно изпълнение след `µs` микросекунди.
+
+## esp_timer_start_periodic | esp_timer_start_periodic(таймер, µs)
+Стартира периодично изпълнение на всеки `µs` микросекунди.
+
+## esp_timer_stop | esp_timer_stop(таймер)
+Спира таймера (грешка, ако не е стартиран).
+
+## esp_random | esp_random()
+32 случайни бита от хардуерния генератор (истинско случайно число, когато Wi-Fi или Bluetooth са включени).
+
+## esp_rom_delay_us | esp_rom_delay_us(µs)
+Активно чакане (върти процесора) за кратки закъснения.
+
+## esp_restart | esp_restart()
+Софтуерно рестартира чипа.
+
+## esp_reset_reason | esp_reset_reason()
+Връща причината за последния рестарт (`ESP_RST_POWERON`, `ESP_RST_DEEPSLEEP`...).
+
+## ESP_RST_DEEPSLEEP | ESP_RST_DEEPSLEEP
+Причина за рестарт: събуждане от дълбок сън.
+
+## esp_deep_sleep_start | esp_deep_sleep_start()
+Влиза в дълбок сън; не връща ([[deepsleep]]).
+
+## esp_sleep_enable_timer_wakeup | esp_sleep_enable_timer_wakeup(µs)
+Разрешава събуждане от RTC таймер след `µs` микросекунди.
+
+## esp_sleep_enable_gpio_wakeup | esp_sleep_enable_gpio_wakeup()
+Разрешава GPIO като източник за събуждане от лек сън.
+
+## esp_pm_config_t | esp_pm_config_t
+Структура с настройки на Power Management: `max_freq_mhz`, `min_freq_mhz`, `light_sleep_enable`.
+
+## esp_pm_configure | esp_pm_configure(&cfg)
+Прилага настройките; връща грешка, ако `CONFIG_PM_ENABLE` не е включено.
+
+## gpio_config_t | gpio_config_t
+Структура с настройки на пин: `pin_bit_mask`, `mode`, `pull_up_en`, `pull_down_en`, `intr_type`.
+
+## gpio_config | gpio_config(&cfg)
+Прилага настройките на един или няколко пина.
+
+## gpio_num_t | gpio_num_t
+Изброим тип за номер на пин на ESP-IDF.
+
+## gpio_set_level | gpio_set_level(пин, 0|1)
+Записва ниво на изходен пин.
+
+## gpio_get_level | gpio_get_level(пин)
+Чете ниво на пин (0 или 1).
+
+## gpio_install_isr_service | gpio_install_isr_service(флагове)
+Инсталира общата услуга за прекъсвания на GPIO (една на чип).
+
+## gpio_isr_handler_add | gpio_isr_handler_add(пин, функция, аргумент)
+Регистрира ISR функция за пин.
+
+## gpio_intr_enable | gpio_intr_enable(пин)
+Включва прекъсването на пина.
+
+## gpio_intr_disable | gpio_intr_disable(пин)
+Изключва прекъсването на пина.
+
+## gpio_wakeup_enable | gpio_wakeup_enable(пин, тип)
+Разрешава на пина да буди от лек сън при дадено ниво.
+
+## GPIO_MODE_INPUT | GPIO_MODE_INPUT / GPIO_MODE_INPUT_OUTPUT
+Режим на пин: само вход, или вход и изход (позволява четене на изходното ниво).
+
+## GPIO_MODE_INPUT_OUTPUT | GPIO_MODE_INPUT_OUTPUT
+Пинът е и изход, и вход: `gpio_get_level` връща реалното ниво на изхода.
+
+## GPIO_PULLUP_DISABLE | GPIO_PULLUP_DISABLE
+Без вътрешен pull-up резистор.
+
+## GPIO_PULLDOWN_DISABLE | GPIO_PULLDOWN_DISABLE
+Без вътрешен pull-down резистор.
+
+## GPIO_INTR_DISABLE | GPIO_INTR_DISABLE
+Без прекъсване на пина.
+
+## GPIO_INTR_HIGH_LEVEL | GPIO_INTR_HIGH_LEVEL
+Прекъсване при ниво HIGH ([[dio1]]).
+
+## SPI2_HOST | SPI2_HOST
+Константа на SPI контролера 2 (общото предназначение SPI на ESP32-S3).
+
+## i2c_new_master_bus | i2c_new_master_bus(&cfg, &bus)
+Създава I2C master шина (нов драйвер на ESP-IDF 5).
+
+## i2c_del_master_bus | i2c_del_master_bus(bus)
+Изтрива шината.
+
+## i2c_master_bus_add_device | i2c_master_bus_add_device(bus, &cfg, &dev)
+Добавя устройство (с адрес) на шината.
+
+## i2c_master_bus_rm_device | i2c_master_bus_rm_device(dev)
+Премахва устройството от шината.
+
+## i2c_master_transmit | i2c_master_transmit(dev, данни, дължина, таймаут)
+Праща байтове към устройството.
+
+## i2c_master_receive | i2c_master_receive(dev, буфер, дължина, таймаут)
+Чете байтове от устройството.
+
+## i2c_master_bus_config_t | i2c_master_bus_config_t
+Настройки на шината: порт, пинове, тактов източник, филтър, pull-up.
+
+## i2c_device_config_t | i2c_device_config_t
+Настройки на устройство: дължина и стойност на адреса, скорост.
+
+## i2c_master_bus_handle_t | i2c_master_bus_handle_t
+Дръжка на шината.
+
+## i2c_master_dev_handle_t | i2c_master_dev_handle_t
+Дръжка на устройство на шината.
+
+## i2c_port_num_t | i2c_port_num_t
+Тип за номер на I2C порт.
+
+## I2C_ADDR_BIT_LEN_7 | I2C_ADDR_BIT_LEN_7
+7-битов I2C адрес.
+
+## I2C_CLK_SRC_DEFAULT | I2C_CLK_SRC_DEFAULT
+Тактов източник по подразбиране.
+
+## nvs_flash_init | nvs_flash_init()
+Инициализира NVS хранилището ([[nvs]]).
+
+## nvs_flash_erase | nvs_flash_erase()
+Изтрива целия NVS раздел.
+
+## nvs_open | nvs_open(пространство, режим, &дръжка)
+Отваря пространство.
+
+## nvs_close | nvs_close(дръжка)
+Затваря го.
+
+## nvs_commit | nvs_commit(дръжка)
+Записва промените реално във flash.
+
+## nvs_get_u8 | nvs_get_u8(дръжка, ключ, &стойност)
+Чете 8-битово число.
+
+## nvs_get_u32 | nvs_get_u32(дръжка, ключ, &стойност)
+Чете 32-битово число.
+
+## nvs_get_str | nvs_get_str(дръжка, ключ, буфер, &дължина)
+Чете низ; дължината е вход (размер на буфера) и изход.
+
+## nvs_get_blob | nvs_get_blob(дръжка, ключ, буфер, &дължина)
+Чете двоични данни.
+
+## nvs_set_u8 | nvs_set_u8(дръжка, ключ, стойност)
+Записва 8-битово число (в RAM до `nvs_commit`).
+
+## nvs_set_u32 | nvs_set_u32(дръжка, ключ, стойност)
+Записва 32-битово число.
+
+## nvs_set_str | nvs_set_str(дръжка, ключ, низ)
+Записва низ.
+
+## nvs_set_blob | nvs_set_blob(дръжка, ключ, данни, дължина)
+Записва двоични данни.
+
+## nvs_handle_t | nvs_handle_t
+Тип на дръжка на отворено пространство.
+
+## NVS_READONLY | NVS_READONLY / NVS_READWRITE
+Режим на отваряне: само четене или четене и писане.
+
+## NVS_READWRITE | NVS_READWRITE
+Режим четене и писане.
+
+## wifi_init_config_t | wifi_init_config_t
+Настройки на Wi-Fi драйвера; `WIFI_INIT_CONFIG_DEFAULT()` ги задава по подразбиране.
+
+## WIFI_INIT_CONFIG_DEFAULT | WIFI_INIT_CONFIG_DEFAULT()
+Макрос със стандартните стойности на Wi-Fi драйвера.
+
+## wifi_config_t | wifi_config_t
+Настройки на Wi-Fi връзка: `sta.ssid`, `sta.password`.
+
+## esp_wifi_init | esp_wifi_init(&cfg)
+Инициализира Wi-Fi драйвера.
+
+## esp_wifi_set_mode | esp_wifi_set_mode(режим)
+Избира режим (`WIFI_MODE_STA` = станция).
+
+## esp_wifi_set_config | esp_wifi_set_config(интерфейс, &cfg)
+Задава SSID и парола.
+
+## esp_wifi_start | esp_wifi_start()
+Стартира драйвера.
+
+## esp_wifi_connect | esp_wifi_connect()
+Започва свързване към мрежата.
+
+## esp_wifi_set_ps | esp_wifi_set_ps(режим)
+Избира режим за пестене на ток (`WIFI_PS_NONE` = без).
+
+## WIFI_MODE_STA | WIFI_MODE_STA
+Режим станция (клиент).
+
+## WIFI_IF_STA | WIFI_IF_STA
+Интерфейс станция.
+
+## WIFI_PS_NONE | WIFI_PS_NONE
+Без пестене на ток: командите не чакат DTIM интервал.
+
+## WIFI_EVENT | WIFI_EVENT / IP_EVENT
+Семействата на събитията за Wi-Fi и за IP.
+
+## IP_EVENT | IP_EVENT
+Семейство събития за IP адрес.
+
+## WIFI_EVENT_STA_START | WIFI_EVENT_STA_START
+Събитие: станцията е стартирана.
+
+## WIFI_EVENT_STA_DISCONNECTED | WIFI_EVENT_STA_DISCONNECTED
+Събитие: връзката е паднала или опитът е неуспешен.
+
+## IP_EVENT_STA_GOT_IP | IP_EVENT_STA_GOT_IP
+Събитие: получен IP адрес.
+
+## ESP_EVENT_ANY_ID | ESP_EVENT_ANY_ID
+Всички събития от дадено семейство.
+
+## esp_event_base_t | esp_event_base_t
+Тип на семейство събития.
+
+## esp_event_loop_create_default | esp_event_loop_create_default()
+Създава системния цикъл за събития.
+
+## esp_event_handler_register | esp_event_handler_register(семейство, id, функция, аргумент)
+Регистрира обработчик.
+
+## esp_netif_init | esp_netif_init()
+Инициализира TCP/IP стека.
+
+## esp_netif_create_default_wifi_sta | esp_netif_create_default_wifi_sta()
+Създава мрежовия интерфейс на станцията.
+
+## esp_mqtt_client_handle_t | esp_mqtt_client_handle_t
+Дръжка на MQTT клиента.
+
+## esp_mqtt_client_config_t | esp_mqtt_client_config_t
+Настройки на MQTT клиента: брокер, данни за вход, сесия, мрежа, буфери.
+
+## esp_mqtt_client_init | esp_mqtt_client_init(&cfg)
+Създава клиента.
+
+## esp_mqtt_client_start | esp_mqtt_client_start(клиент)
+Стартира задачата на клиента и свързването.
+
+## esp_mqtt_client_subscribe | esp_mqtt_client_subscribe(клиент, тема, qos)
+Абонира се за тема.
+
+## esp_mqtt_client_publish | esp_mqtt_client_publish(клиент, тема, данни, дължина, qos, retain)
+Публикува съобщение; връща номер или отрицателно число при грешка. ВНИМАНИЕ: праща в задачата на викащия и по документацията "might block for several seconds" (до `network.timeout_ms`, тук 10 s) при полумъртъв сокет. В проекта вместо него се ползва [[esp_mqtt_client_enqueue]].
+
+## esp_mqtt_client_enqueue | esp_mqtt_client_enqueue(клиент, тема, данни, дължина, qos, retain, store)
+Неблокиращият вариант на `esp_mqtt_client_publish`: само записва съобщението в outbox, а самото изпращане става в задачата на esp-mqtt. `store=true` значи да се записват и QoS 0 съобщения (иначе само QoS 1 и 2). Връща номер на съобщение, -1 при грешка и -2 при пълен outbox. Така викащата задача (напр. `gw_cmd`) не се бави и таймаутите ѝ не се объркват ([[timeouts|Всичко има таймаут]]). Успех значи "прието за изпращане", не "доставено".
+
+## esp_mqtt_client_register_event | esp_mqtt_client_register_event(клиент, събитие, функция, аргумент)
+Регистрира обработчик на събития.
+
+## esp_mqtt_event_handle_t | esp_mqtt_event_handle_t
+Указател към структура със събитие: `topic`, `topic_len`, `data`, `data_len`, `current_data_offset`, `total_data_len`.
+
+## esp_mqtt_event_id_t | esp_mqtt_event_id_t
+Тип на вида на MQTT събитие.
+
+## MQTT_EVENT_CONNECTED | MQTT_EVENT_CONNECTED
+Събитие: връзката с брокера е установена.
+
+## MQTT_EVENT_DISCONNECTED | MQTT_EVENT_DISCONNECTED
+Събитие: връзката е изгубена.
+
+## MQTT_EVENT_DATA | MQTT_EVENT_DATA
+Събитие: получено съобщение.
+
+## MQTT_EVENT_ERROR | MQTT_EVENT_ERROR
+Събитие: грешка.
+
+## MQTT_EVENT_ANY | MQTT_EVENT_ANY
+Всички събития.
+
+## MQTT_TRANSPORT_OVER_TCP | MQTT_TRANSPORT_OVER_TCP
+Транспорт: чист TCP (без TLS).
+
+## esp_task_wdt_config_t | esp_task_wdt_config_t
+Настройки на Task Watchdog: `timeout_ms`, `idle_core_mask`, `trigger_panic` ([[watchdog]]).
+
+## esp_task_wdt_init | esp_task_wdt_init(&cfg)
+Стартира Task Watchdog.
+
+## esp_task_wdt_reconfigure | esp_task_wdt_reconfigure(&cfg)
+Променя настройките на вече стартиран.
+
+## esp_task_wdt_add | esp_task_wdt_add(задача)
+Абонира задача (`NULL` = текущата); от тук трябва да го "храни".
+
+## esp_task_wdt_reset | esp_task_wdt_reset()
+"Храни" watchdog-а от текущата задача.
+
+## mbedtls_aes_context | mbedtls_aes_context
+Контекст на AES (разширеният ключ).
+
+## mbedtls_aes_init | mbedtls_aes_init(&ctx)
+Инициализира контекста.
+
+## mbedtls_aes_free | mbedtls_aes_free(&ctx)
+Изтрива ключа от паметта.
+
+## mbedtls_aes_setkey_enc | mbedtls_aes_setkey_enc(&ctx, ключ, битове)
+Задава ключ за криптиране (128 бита).
+
+## mbedtls_aes_crypt_ctr | mbedtls_aes_crypt_ctr(...)
+CTR криптиране/декриптиране ([[ctr]]).
+
+## mbedtls_cipher_cmac | mbedtls_cipher_cmac(info, ключ, битове, вход, дължина, изход)
+Смята CMAC ([[cmac]]).
+
+## mbedtls_cipher_info_from_type | mbedtls_cipher_info_from_type(тип)
+Връща описание на шифър по тип.
+
+## mbedtls_cipher_info_t | mbedtls_cipher_info_t
+Описание на шифър.
+
+## MBEDTLS_CIPHER_AES_128_ECB | MBEDTLS_CIPHER_AES_128_ECB
+Шифърът AES-128; CMAC се строи върху него.
+
+## cJSON | cJSON
+Тип на възел от JSON дърво.
+
+## cJSON_ParseWithLengthOpts | cJSON_ParseWithLengthOpts(текст, дължина, &край, изискай_край)
+Разбира JSON с дадена дължина (не изисква нулев терминатор).
+
+## cJSON_Delete | cJSON_Delete(възел)
+Освобождава дървото.
+
+## cJSON_IsObject | cJSON_IsObject(възел)
+Проверка: обект ли е.
+
+## cJSON_IsArray | cJSON_IsArray(възел)
+Проверка: масив ли е.
+
+## cJSON_IsString | cJSON_IsString(възел)
+Проверка: низ ли е.
+
+## cJSON_GetObjectItemCaseSensitive | cJSON_GetObjectItemCaseSensitive(обект, ключ)
+Намира поле по ключ (различава малки/главни).
+
+## cJSON_CreateObject | cJSON_CreateObject()
+Създава празен обект.
+
+## cJSON_AddItemToArray | cJSON_AddItemToArray(масив, елемент)
+Добавя елемент в масив.
+
+## cJSON_AddArrayToObject | cJSON_AddArrayToObject(обект, ключ)
+Създава масив и го добавя в обект.
+
+## cJSON_AddStringToObject | cJSON_AddStringToObject(обект, ключ, низ)
+Добавя низ.
+
+## cJSON_AddNumberToObject | cJSON_AddNumberToObject(обект, ключ, число)
+Добавя число (`double`).
+
+## cJSON_AddBoolToObject | cJSON_AddBoolToObject(обект, ключ, булева)
+Добавя `true`/`false`.
+
+## cJSON_AddRawToObject | cJSON_AddRawToObject(обект, ключ, текст)
+Добавя суров токен без обработка.
+
+## cJSON_PrintPreallocated | cJSON_PrintPreallocated(възел, буфер, дължина, форматирай)
+Печата във вече заделен буфер.
+
+## cJSON_ArrayForEach | cJSON_ArrayForEach(елемент, масив)
+Макрос: цикъл по елементите на масива.
+
+## valuestring | valuestring
+Поле на `cJSON`: текстовата стойност на низов възел.
+
+## SX1262 | SX1262 (RadioLib)
+Класът на радио чипа в RadioLib. Методи: `begin`, `startReceive`, `readData`, `startTransmit`, `standby`, `sleep`, `startChannelScan`... ([[radiolib]]).
+
+## Module | Module (RadioLib)
+Слой на RadioLib, който знае пиновете на радиото (CS, DIO1, RST, BUSY).
+
+## EspHal | EspHal (RadioLib)
+Готовият хардуерен слой на RadioLib за ESP-IDF: SPI и GPIO.
+
+## ConfigLoRa_t | ConfigLoRa_t
+Структура на RadioLib с настройките на LoRa модема.
+
+## ChannelScanConfig_t | ChannelScanConfig_t
+Структура на RadioLib с настройките на CAD.
+
+## RADIOLIB_ERR_NONE | RADIOLIB_ERR_NONE
+Резултат 0: успех в RadioLib.
+
+## RADIOLIB_ERR_CRC_MISMATCH | RADIOLIB_ERR_CRC_MISMATCH
+Пакетът е получен с лош CRC.
+
+## RADIOLIB_LORA_DETECTED | RADIOLIB_LORA_DETECTED
+Резултат на CAD: открита е LoRa активност (каналът е зает).
+
+## RADIOLIB_SX126X_IRQ_ALL | RADIOLIB_SX126X_IRQ_ALL
+Маска на всички прекъсвания на SX126x.
+
+## RADIOLIB_SX126X_IRQ_RX_DONE | RADIOLIB_SX126X_IRQ_RX_DONE
+Бит на флаг: пакетът е получен.
+
+## RADIOLIB_SX126X_IRQ_TX_DONE | RADIOLIB_SX126X_IRQ_TX_DONE
+Бит на флаг: предаването е завършило.
+
+## RADIOLIB_SX126X_IRQ_TIMEOUT | RADIOLIB_SX126X_IRQ_TIMEOUT
+Бит на флаг: таймаут.
+
+## RADIOLIB_SX126X_CAD_PARAM_DEFAULT | RADIOLIB_SX126X_CAD_PARAM_DEFAULT
+Стойност по подразбиране на параметър на CAD.
+
+## RADIOLIB_IRQ_CAD_DEFAULT_FLAGS | RADIOLIB_IRQ_CAD_DEFAULT_FLAGS
+Флагове на прекъсване при CAD по подразбиране.
+
+## RADIOLIB_IRQ_CAD_DEFAULT_MASK | RADIOLIB_IRQ_CAD_DEFAULT_MASK
+Маска на прекъсване при CAD по подразбиране.
+
+## RADIOLIB_SX126X_CAD_ON_1_SYMB | RADIOLIB_SX126X_CAD_ON_1_SYMB
+CAD върху 1 символ.
+
+## RADIOLIB_SX126X_CAD_ON_2_SYMB | RADIOLIB_SX126X_CAD_ON_2_SYMB
+CAD върху 2 символа.
+
+## RADIOLIB_SX126X_CAD_ON_4_SYMB | RADIOLIB_SX126X_CAD_ON_4_SYMB
+CAD върху 4 символа.
+
+## RADIOLIB_SX126X_CAD_ON_8_SYMB | RADIOLIB_SX126X_CAD_ON_8_SYMB
+CAD върху 8 символа.
+
+## RADIOLIB_SX126X_CAD_ON_16_SYMB | RADIOLIB_SX126X_CAD_ON_16_SYMB
+CAD върху 16 символа.
+
+## startReceive | radio.startReceive()
+Започва непрекъснат прием (RX continuous).
+
+## readData | radio.readData(буфер, дължина)
+Чете получения пакет и изчиства флаговете.
+
+## startTransmit | radio.startTransmit(данни, дължина)
+Започва излъчване и връща веднага.
+
+## finishTransmit | radio.finishTransmit()
+Изчиства флаговете и връща чипа в standby.
+
+## standby | radio.standby()
+Режим на готовност (нужен за смяна на честота и параметри).
+
+## sleep | radio.sleep(запази_конфигурация)
+Приспива радиото (най-малък ток).
+
+## setFrequency | radio.setFrequency(MHz)
+Сменя честотата.
+
+## getIrqFlags | radio.getIrqFlags()
+Чете флаговете на прекъсване на чипа.
+
+## clearIrqFlags | radio.clearIrqFlags(маска)
+Изчиства флаговете (DIO1 пада).
+
+## getPacketLength | radio.getPacketLength()
+Дължина на получения пакет.
+
+## getRSSI | radio.getRSSI()
+Сила на сигнала на последния пакет (dBm).
+
+## getSNR | radio.getSNR()
+Съотношение сигнал-шум на последния пакет (dB).
+
+## getTimeOnAir | radio.getTimeOnAir(дължина)
+Време във въздуха в микросекунди.
+
+## startChannelScan | radio.startChannelScan(&cfg)
+Стартира CAD.
+
+## getChannelScanResult | radio.getChannelScanResult()
+Резултат на CAD.
+
+## setCurrentLimit | radio.setCurrentLimit(mA)
+Ограничение по ток (OCP) на усилвателя.
+
+## setDio2AsRfSwitch | radio.setDio2AsRfSwitch(вкл)
+Дали DIO2 управлява RF превключвателя.
+
+## setRfSwitchPins | module.setRfSwitchPins(rxen, txen)
+Задава пинове за RF превключвателя.
+
+## tcxoVoltage | radio.tcxoVoltage
+Напрежение за TCXO през DIO3.
+
+## useRegulatorLDO | radio.useRegulatorLDO
+`true` = само LDO регулатор.
+
+## resetOnStartup | radio.resetOnStartup
+Дали `begin()` прави свой reset.
+
+## spiConfig | module.spiConfig
+Настройки на SPI слоя (например таймаут на BUSY).
+
+## memcpy | memcpy(на, от, байтове)
+Копира байтове (областите не бива да се застъпват).
+
+## memset | memset(къде, стойност, байтове)
+Запълва памет със стойност (най-често нули).
+
+## memcmp | memcmp(a, b, байтове)
+Сравнява байтове; 0 = еднакви.
+
+## snprintf | snprintf(буфер, размер, формат, ...)
+Форматира текст в буфер, без да излиза от размера.
+
+## printf | printf(формат, ...)
+Печата на конзолата.
+
+## fflush | fflush(поток)
+Изпраща буферирания изход веднага.
+
+## getchar | getchar()
+Чете един символ от конзолата; -1 при EOF.
+
+## stdout | stdout
+Стандартният изход.
+
+## strlen | strlen(низ)
+Дължина на низ до нулевия байт.
+
+## strnlen | strnlen(низ, макс)
+Дължина, но най-много `макс`.
+
+## strcmp | strcmp(a, b)
+Сравнява низове; 0 = еднакви.
+
+## strncmp | strncmp(a, b, n)
+Сравнява най-много `n` символа.
+
+## strcpy | strcpy(на, от)
+Копира низ с нулата (опасно без проверка на дължината).
+
+## strncpy | strncpy(на, от, n)
+Копира най-много `n` символа (не слага нула, ако низът е по-дълъг).
+
+## strtol | strtol(низ, &край, основа)
+Превръща низ в число; основа 10 или 16.
+
+## PRIu32 | PRIu32, PRId32, PRIX32 (<inttypes.h>)
+Макроси, които дават верния printf спецификатор за типове с точен размер. Пример: `"%" PRIu32` за `uint32_t`. Нужни са, защото на ESP32 `uint32_t` е `unsigned long` (формат `%lu`), а на други платформи `unsigned int` (`%u`); с макроса един и същи ред е верен навсякъде. `PRId32` е за `int32_t`, `PRIX32` за шестнадесетично с главни букви (`"%02" PRIX32`). Аргументът се преобразува към точния тип: `(uint32_t)x`.
+
+## UINT32_C | UINT32_C(n), UINT64_C(n), INT32_C(n) (<stdint.h>)
+Макроси за константи с точен размер: `UINT32_C(5000)` е число от тип `uint32_t`, `UINT64_C(1) << pin` е 64-битово. Заместват суфиксите `UL`/`ULL`/`L`, чийто размер зависи от платформата (на ESP32 `unsigned long` е 32 бита, на 64-битов компютър е 64).

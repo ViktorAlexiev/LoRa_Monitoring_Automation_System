@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 
 CXX="g++ -std=c++17 -O0 -g -Wall"
 FAKE="-I fakelibs"
-SRC=../../firmware_src
+SRC=${SRC:-../../firmware_src/LoRa_radio_node+TTGO}
 
 run() {   # run <заглавие> <exe> <включвания -I> <файлове...>
   local title="$1"; local exe="$2"; local inc="$3"; shift 3

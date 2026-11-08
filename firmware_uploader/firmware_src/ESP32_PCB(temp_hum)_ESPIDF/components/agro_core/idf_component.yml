@@ -1,0 +1,6 @@
+# cJSON е вграден в ESP-IDF 5.x (компонент "json"); от ESP-IDF 6.0 се тегли от регистъра.
+dependencies:
+  espressif/cjson:
+    version: "^1.7.19"
+    rules:
+      - if: "idf_version >=6.0"

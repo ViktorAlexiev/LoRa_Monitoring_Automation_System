@@ -1,0 +1,29 @@
+1: включва `sensor_config.h`.
+3: `<string.h>`: `memset`.
+4: `esp_log.h`: логове.
+5: `nvs_store.h`: `NvsStore`, `NVS_NAMESPACE`.
+6: `radio_timing.h`: `radioSfValid`, `radioBwToIndex`, `RADIO_*_DEFAULT`.
+8: `TAG` за логовете.
+10: `void sensor_config_load(SensorConfig *c)`: попълва `c` от NVS; `c` е указател към структурата, подадена от `app_main`.
+11: `memset(c, 0, sizeof(*c));` нулира всичко (`hasId` и `hasKey` стават `false`, ID-то е празен низ).
+12: `c->freqHz = LORA_FREQ_DEFAULT_HZ;` подразбираща се честота 433 MHz.
+13: `sf = RADIO_SF_DEFAULT` (7).
+14: `bwHz = RADIO_BW_DEFAULT_HZ` (125000).
+15: `txPowerDbm = LORA_TX_POWER_DBM` (17).
+17: `NvsStore s;` обект за NVS; затваря се сам при излизане от функцията ([[raii]]).
+18: `s.open(NVS_NAMESPACE, true)`: отваря само за четене; ако е неуспешно (NVS е празен) ...
+19: ... предупреждение: устройството не е конфигурирано ...
+20: ... и `return` с подразбиращите се стойности.
+21: затваря.
+22: `c->hasId = s.getString("id", c->id, sizeof(c->id)) && c->id[0] != 0;` чете ID; `hasId` е `true` само ако четенето е успешно И ID-то не е празно.
+24: `uint32_t f = s.getU32("freq", 0);` честотата от NVS; 0 при липса.
+25: `if (f != 0) c->freqHz = f;` приема я само ако е различна от 0; иначе остава 433 MHz ("до Gateway", по-безопасният вариант).
+26: `uint8_t sf = s.getU8("sf", RADIO_SF_DEFAULT);`.
+27: `c->sf = radioSfValid(sf) ? sf : RADIO_SF_DEFAULT;` валиден SF или подразбиращия се.
+28: `uint32_t bw = s.getU32("bw", RADIO_BW_DEFAULT_HZ);`.
+29: `c->bwHz = (radioBwToIndex(bw) != 0xFF) ? bw : RADIO_BW_DEFAULT_HZ;` приема само поддържан BW (индексът не е 0xFF).
+30: `c->txPowerDbm = (int8_t)s.getU8("txp", (uint8_t)LORA_TX_POWER_DBM);` NVS пази `u8`; преобразува се в `int8_t`, за да е със знак (два комплемента: например 0xF7 става -9) ([[twos-complement]]).
+32: чете опцията `bat` от NVS (по подразбиране 0): true само ако е записана 1.
+33: `c->hasKey = s.getBlob("key", c->key, CRYPTO_KEY_LEN) == CRYPTO_KEY_LEN;` чете 16 байта; ключът е валиден само ако са прочетени точно 16.
+34: ако няма ключ ...
+35: ... предупреждение: няма да предава.

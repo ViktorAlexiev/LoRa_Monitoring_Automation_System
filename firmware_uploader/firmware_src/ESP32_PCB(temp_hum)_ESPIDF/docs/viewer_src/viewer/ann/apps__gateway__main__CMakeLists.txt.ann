@@ -1,0 +1,1 @@
+1..4: `idf_component_register(...)` ([[component]]): `SRCS` са четирите файла; `INCLUDE_DIRS "."`; `REQUIRES`: `agro_hal`, `agro_core`, `agro_radio`, `agro_net` (Wi-Fi и MQTT), `agro_board`, `freertos`, `log`.

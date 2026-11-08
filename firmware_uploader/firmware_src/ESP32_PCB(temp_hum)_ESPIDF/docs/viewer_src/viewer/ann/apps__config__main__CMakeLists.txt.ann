@@ -1,0 +1,1 @@
+1..4: `idf_component_register(...)` ([[component]]): два файла; `INCLUDE_DIRS "."`; `REQUIRES`: `agro_hal`, `agro_core`, `agro_cfg` (разбор на конфигурацията), `agro_board`, `freertos`, `log`.

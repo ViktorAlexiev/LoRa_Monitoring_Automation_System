@@ -21,7 +21,7 @@
 #define RADIO_SF_MIN        7
 #define RADIO_SF_MAX        12
 #define RADIO_SF_DEFAULT    7
-#define RADIO_BW_DEFAULT_HZ 125000UL
+#define RADIO_BW_DEFAULT_HZ UINT32_C(125000)
 
 // BW индекс, както се пази в EEPROM (адрес 96): 0=62.5k, 1=125k, 2=250k.
 // 0xFF (изтрит EEPROM) или друга стойност -> default (125k).

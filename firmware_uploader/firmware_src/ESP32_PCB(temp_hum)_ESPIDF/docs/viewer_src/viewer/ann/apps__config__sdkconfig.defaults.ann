@@ -1,0 +1,9 @@
+1: `CONFIG_IDF_TARGET="esp32s3"`: целевият чип ([[sdkconfig]]).
+2: `CONFIG_FREERTOS_HZ=1000`: тик 1 ms.
+3: коментар: `cfg_apply_line` държи няколко KB локални буфери.
+4: `CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192`: стекът на главната задача е 8192 B (в другите приложения е 4096), защото `cfg_apply_line` ползва големи локални масиви.
+5: `CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y`: flash 4 MB.
+6: коментар: `crypto_common.cpp` се компилира във всяко приложение, което ползва `agro_core`, и иска CMAC (в IDF е изключен по подразбиране).
+7: `CONFIG_MBEDTLS_CMAC_C=y`: включва CMAC.
+8: коментар: без Task Watchdog по желание на заданието.
+9: `CONFIG_ESP_TASK_WDT_INIT=n`: не стартира Task Watchdog ([[watchdog]]).

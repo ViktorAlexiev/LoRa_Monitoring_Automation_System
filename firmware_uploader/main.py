@@ -403,6 +403,15 @@ class SimpleDeviceFrame(ttk.Frame):
             self._refresh_freq_display()
             row += 1
 
+        # Само ESP32 PCB (Sensor/Repeater): платката има литиева батерия през делител 1:1 -> мери се и се праща в mV
+        self.bat_var = tk.BooleanVar(value=False)
+        self.bat_check = ttk.Checkbutton(self, text="Платката има батерия (делител 1:1, измерване в mV)",
+                                         variable=self.bat_var)
+        if self.is_sensor or self.is_repeater:
+            self.bat_check.grid(row=row, column=0, columnspan=4, sticky="w", padx=5, pady=5)
+            row += 1
+            self._update_bat_visibility()
+
         ttk.Label(self, text="Latitude:").grid(row=row, column=0, sticky="w", padx=5)
         self.lat_var = tk.StringVar()
         ttk.Entry(self, textvariable=self.lat_var, width=15).grid(row=row, column=1, sticky="w")
@@ -511,8 +520,17 @@ class SimpleDeviceFrame(ttk.Frame):
             self.lane_combo.current(pos)
         self._update_freq_info()
 
+    def _update_bat_visibility(self):
+        """Опцията за батерия е само за ESP32 PCB (AVR модулите нямат делител)."""
+        esp32 = self.app.get_platform() == "esp32"
+        if not esp32:
+            self.bat_var.set(False)
+        if self.is_sensor or self.is_repeater:
+            (self.bat_check.grid if esp32 else self.bat_check.grid_remove)()
+
     def on_tab_selected(self):
         self._clear_messages()
+        self._update_bat_visibility()
         self._refresh_freq_display()
         lat, lon, err = get_coordinates()
         if err:
@@ -619,6 +637,9 @@ class SimpleDeviceFrame(ttk.Frame):
             k = self._selected_lane()
             packet["freq"] = str(self.lanes_hz[k])          # RX - входна лента (EEPROM addr 67)
             packet["freq_tx"] = str(self.lanes_hz[k - 1])   # TX - лента по-близо до Gateway (EEPROM addr 71)
+        has_battery = (prof["platform"] == "esp32" and (self.is_sensor or self.is_repeater) and self.bat_var.get())
+        if prof["platform"] == "esp32" and (self.is_sensor or self.is_repeater):
+            packet["bat"] = "1" if has_battery else "0"      # ESP32 NVS "bat": heartbeat/sensor пакетът носи батерията
         ok, msg2 = send_cfg(self.app, prof, port, packet)
         if not ok:
             self.status_label.config(text=f"Грешка при config пакет: {msg2}", foreground="#DC2626")
@@ -650,6 +671,8 @@ class SimpleDeviceFrame(ttk.Frame):
         gw_params["sf"] = self.sf
         gw_params["bw_hz"] = self.bw_hz
         gw_params["platform"] = prof["platform"]
+        if self.is_sensor or self.is_repeater:
+            gw_params["battery"] = has_battery
         upsert_registry(self.app.db_path, module_id, self.device_type, gw_params, lat, lon)
         add_log(self.app.db_path, self.device_type, module_id, gw_params, lat, lon, action="upload")
         self.status_label.config(text="Успешно качено!", foreground="#16A34A")
@@ -717,6 +740,13 @@ class ExecutorFrame(ttk.Frame):
             self.net_widgets += [lbl, entry, err]
             row += 1
 
+        # Само ESP32 PCB с LoRa: има ли батерия през делител 1:1 (heartbeat-ът носи mV). Executor_wifi няма heartbeat по LoRa.
+        self.bat_var = tk.BooleanVar(value=False)
+        self.bat_check = ttk.Checkbutton(self, text="Платката има батерия (делител 1:1, измерване в mV)",
+                                         variable=self.bat_var)
+        self.bat_check.grid(row=row, column=0, columnspan=4, sticky="w", padx=5, pady=5)
+        row += 1
+
         ttk.Label(self, text="Консуматори:").grid(row=row, column=0, sticky="nw", padx=5, pady=5)
         self.consumers_frame = ttk.Frame(self)
         self.consumers_frame.grid(row=row, column=1, columnspan=3, sticky="w")
@@ -775,6 +805,10 @@ class ExecutorFrame(ttk.Frame):
             (w.grid_remove if wifi else w.grid)()
         for w in self.net_widgets:
             (w.grid if wifi else w.grid_remove)()
+        bat_ok = esp32 and not wifi
+        if not bat_ok:
+            self.bat_var.set(False)
+        (self.bat_check.grid if bat_ok else self.bat_check.grid_remove)()
         pin_rule = ("- Pin: GPIO номер на ESP32 (число 0-39), без резервираните от Settings\n" if esp32 else
                     "- Pin: макс 2 символа - число (макс 2 цифри) или главна буква + число (напр. A3)\n")
         self.rules_label.config(text=(
@@ -929,6 +963,8 @@ class ExecutorFrame(ttk.Frame):
         else:
             packet = {"id": module_id, "consumers": consumers, "freq": str(self.freq_gw_hz),
                       "key": NETWORK_KEY_HEX, "sf": str(sf), "bw": str(bw_hz)}
+            if prof["platform"] == "esp32":
+                packet["bat"] = "1" if self.bat_var.get() else "0"
         ok, msg2 = send_cfg(self.app, prof, port, packet)
         if not ok:
             self.status_label.config(text=f"Грешка при config пакет: {msg2}", foreground="#DC2626")
@@ -945,6 +981,8 @@ class ExecutorFrame(ttk.Frame):
         else:
             params = {"consumers": consumers, "freq_hz": self.freq_gw_hz, "sf": sf, "bw_hz": bw_hz,
                       "cmd_via": "lora", "platform": prof["platform"]}
+            if prof["platform"] == "esp32":
+                params["battery"] = bool(self.bat_var.get())
         upsert_registry(self.app.db_path, module_id, "executor", params, lat, lon)
         add_log(self.app.db_path, "executor", module_id, params, lat, lon, action="upload")
         self.status_label.config(text="Успешно качено!", foreground="#16A34A")

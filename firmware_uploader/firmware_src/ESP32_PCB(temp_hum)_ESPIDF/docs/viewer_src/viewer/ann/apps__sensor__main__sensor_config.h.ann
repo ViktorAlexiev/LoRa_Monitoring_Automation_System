@@ -1,0 +1,19 @@
+1: `#ifndef SENSOR_CONFIG_H`: [[header-guard]].
+2: дефинира `SENSOR_CONFIG_H`.
+4: `<stdint.h>`: [[uint]].
+5: `<stdbool.h>`: `bool`.
+6: `protocol.h`: `MODULE_ID_LEN`, и през него `CRYPTO_KEY_LEN`.
+8: `struct SensorConfig {` настройките на сензора, заредени от NVS ([[struct]]).
+9: `char id[MODULE_ID_LEN + 1];` ID на сензора: 6 символа и нулев байт.
+10: `uint32_t freqHz;` честота в Hz.
+11: `uint8_t sf;` spreading factor ([[sf]]).
+12: `uint32_t bwHz;` ширина на канала в Hz.
+13: `int8_t txPowerDbm;` мощност от NVS `txp` (-9..22); по подразбиране `LORA_TX_POWER_DBM`; радиото я ограничава до максимума на модула.
+14: `uint8_t key[CRYPTO_KEY_LEN];` мрежовият ключ (16 байта).
+15: `bool hasKey;` има ли валиден ключ.
+16: `bool hasId;` има ли валиден ID.
+17: полето `hasBattery`: true, ако в NVS ключът `bat` е 1 - платката има делител и сензорният пакет носи батерията.
+18: затваря.
+20..22: коментар: чете настройките от NVS (пространство `cfg`), записани от config приложението: `id`, `freq`, `sf`, `bw`, `key`. Липсващи или невалидни полета -> безопасни стойности по подразбиране.
+23: `void sensor_config_load(SensorConfig *c);` декларация: попълва структурата през указателя ([[pointer]]).
+25: `#endif`.

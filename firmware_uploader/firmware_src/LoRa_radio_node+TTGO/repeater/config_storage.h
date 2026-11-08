@@ -16,8 +16,8 @@
 #define EEPROM_ADDR_BW_IDX        96  // 1 byte - индекс на BW: 0=62.5k, 1=125k, 2=250k; 0xFF/невалиден -> default
 
 // Default честоти - fallback ако EEPROM е неинициализиран (0 или 0xFFFFFFFF)
-#define LORA_FREQ_RX_DEFAULT_HZ  434000000UL
-#define LORA_FREQ_TX_DEFAULT_HZ  433000000UL
+#define LORA_FREQ_RX_DEFAULT_HZ  UINT32_C(434000000)
+#define LORA_FREQ_TX_DEFAULT_HZ  UINT32_C(433000000)
 
 extern char REPEATER_ID[MODULE_ID_LEN + 1];
 extern uint32_t LORA_FREQ_RX_HZ;

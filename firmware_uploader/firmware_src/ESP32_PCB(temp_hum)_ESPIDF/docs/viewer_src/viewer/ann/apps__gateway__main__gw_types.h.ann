@@ -1,0 +1,37 @@
+1: `#ifndef GW_TYPES_H`: [[header-guard]].
+2: дефинира го.
+4: `<stdint.h>`.
+5: `protocol.h`: `CRYPTO_ID_LEN`, `CONSUMER_ID_LEN`, `CRYPTO_MAX_PT`, `CMD_WIRE_LEN`.
+7: коментар: съобщения към задачата `gw_cmd` (радио -> логика, MQTT -> логика).
+8: `GW_MQTT_PAYLOAD_MAX` = 159: най-дългият MQTT payload, който се приема; командата и заявката са под 100 B.
+10: `enum GwMsgType {` изброим тип с видовете съобщения ([[enum]]).
+11: `GM_SENSOR = 1,` декриптиран пакет от сензор; започва от 1, следващите са 2, 3, ...
+12: `GM_HB_REPEATER,` heartbeat на repeater (2).
+13: `GM_HB_EXEC,` heartbeat на executor (3).
+14: `GM_ACK,` ACK/NACK от executor (4).
+15: `GM_STATE,` state response, нормален или restart (5).
+16: `GM_MQTT_CMD,` команда от бекенда по тема `commands` (6).
+17: `GM_MQTT_STATE_REQ` заявка за състояния по тема `module_states_requests` (7).
+18: затваря.
+20: `struct GwMsg {` едно съобщение към логиката ([[struct]]).
+21: `uint8_t type;` вид (`GwMsgType`).
+22: `uint8_t restart;` за `GM_STATE`: автоматичен отговор след boot.
+23: `uint8_t stateLen;` за `GM_STATE`: колко байта са в `state[]`.
+24: `uint8_t com, status;` за `GM_ACK`: код на командата и статус.
+25: `uint16_t payloadLen;` за `GM_MQTT_*`: дължина на payload.
+26: `int16_t rssi;` сила на сигнала в dBm.
+27: `int16_t snrX100;` SNR x 100 (стъпка 0,25 dB).
+28: `uint32_t tsSec;` секунди от старта към момента на приемане.
+29: `char id[CRYPTO_ID_LEN + 1];` подателят (sensor, repeater или executor) като низ.
+30: `char cId[CONSUMER_ID_LEN + 1];` за `GM_ACK`: ID на консуматора.
+31: `int16_t v[4];` за `GM_SENSOR`: суровите стойности x100 (`-32768` = няма данни).
+32: полето `batMv`: батерията от пакета в mV; `BATTERY_RAW_NODATA` когато пакетът е от старите (без батерия) или няма измерване.
+33: `uint8_t state[CRYPTO_MAX_PT];` за `GM_STATE`: състоянията (до 50 B).
+34: `char payload[GW_MQTT_PAYLOAD_MAX + 1];` за `GM_MQTT_*`: текстът на MQTT съобщението с нулев терминатор.
+35: затваря. Структурата е голяма (~260 B), защото една опашка носи всички видове съобщения.
+37: коментар: заявка за предаване (логика -> радио).
+38: `struct TxReq {` ([[struct]]).
+39: `uint8_t len;` дължина на пакета.
+40: `uint8_t buf[CMD_WIRE_LEN];` буфер; най-дългият изходящ пакет е 26 B.
+41: затваря.
+43: `#endif`.

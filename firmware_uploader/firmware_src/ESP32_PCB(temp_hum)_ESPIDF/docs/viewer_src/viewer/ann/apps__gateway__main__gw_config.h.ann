@@ -1,0 +1,26 @@
+1: `#ifndef GW_CONFIG_H`: [[header-guard]].
+2: дефинира го.
+4: `<stdint.h>`.
+5: `<stdbool.h>`.
+6: `cfg_limits.h`: дължините на Wi-Fi/MQTT низовете.
+7: `protocol.h`.
+9: `struct GwConfig {` настройките на gateway ([[struct]]).
+10: `char id[MODULE_ID_LEN + 1];` ID.
+11: `char wifiSsid[CFG_WIFI_SSID_LEN + 1];` име на Wi-Fi мрежата.
+12: `char wifiPass[CFG_WIFI_PASSWORD_LEN + 1];` парола.
+13: `char mqttHost[CFG_MQTT_IP_LEN + 1];` адрес на брокера.
+14: `uint16_t mqttPort;` порт.
+15: `char mqttUser[CFG_MQTT_USER_LEN + 1];` потребител.
+16: `char mqttPass[CFG_MQTT_PASSWORD_LEN + 1];` парола.
+17: `uint32_t freqHz;` честота.
+18: `uint8_t sf;`
+19: `uint32_t bwHz;`
+20: `int8_t txPowerDbm;` мощност от NVS `txp`.
+21: `uint8_t key[CRYPTO_KEY_LEN];` ключ.
+22: `bool hasKey;`
+23: `bool hasId;`
+24: `bool hasNet;` има ли Wi-Fi SSID и MQTT адрес.
+25: затваря.
+27: коментар: NVS (пространство `cfg`): `id`, `wssid`, `wpass`, `mqip`, `mqport` (низ!), `mquser`, `mqpass`, `freq`, `sf`, `bw`, `key`; `cmdceil` (watermark на nonce).
+28: `void gw_config_load(GwConfig *c);`
+30: `#endif`.

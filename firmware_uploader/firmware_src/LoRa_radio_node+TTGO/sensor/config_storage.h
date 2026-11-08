@@ -17,7 +17,7 @@
 // Default честота - fallback ако EEPROM е неинициализиран (0 или 0xFFFFFFFF).
 // Честотата "до Gateway" (не "Sensor->Repeater") - по-безопасен fallback: Sensor поне
 // има шанс да достигне директно Gateway, дори без Repeater в мрежата.
-#define LORA_FREQ_DEFAULT_HZ 433000000UL
+#define LORA_FREQ_DEFAULT_HZ UINT32_C(433000000)
 
 extern char SENSOR_ID[MODULE_ID_LEN + 1];
 extern uint32_t LORA_FREQ_HZ;

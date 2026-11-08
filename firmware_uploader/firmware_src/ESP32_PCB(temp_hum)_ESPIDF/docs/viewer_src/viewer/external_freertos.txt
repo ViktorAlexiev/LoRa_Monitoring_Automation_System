@@ -1,0 +1,131 @@
+## TickType_t | TickType_t: време в тикове
+Тип (32-битово число без знак), в който FreeRTOS мери време. Един тик е 1 ms в проекта (`CONFIG_FREERTOS_HZ=1000`, [[tick]]). Всички таймаути на RTOS функциите са в тикове; за милисекунди се ползва `pdMS_TO_TICKS(ms)`. `portMAX_DELAY` значи "чакай завинаги".
+
+## UBaseType_t | UBaseType_t: брояч без знак
+Тип на естествената дума на процесора (32 бита при ESP32-S3). Ползва се за приоритети, дължина на опашка, брой елементи.
+
+## portTICK_PERIOD_MS | portTICK_PERIOD_MS
+Милисекунди на един тик (1 при `CONFIG_FREERTOS_HZ=1000`). Старият начин за превръщане: `ms / portTICK_PERIOD_MS`. По-безопасно е `pdMS_TO_TICKS(ms)`, което смята правилно и при други честоти.
+
+## pdPASS | pdPASS и pdFAIL
+Резултат на много RTOS функции: `pdPASS` (1) = успех, `pdFAIL` (0) = неуспех. `pdTRUE`/`pdFALSE` са същите стойности, но по смисъл логически отговор. `xQueueSend` връща `pdPASS`, ако елементът е записан, и `errQUEUE_FULL`, ако опашката е пълна след изтичане на таймаута.
+
+## errQUEUE_FULL | errQUEUE_FULL
+Върнатата стойност на `xQueueSend*`, когато няма място в опашката дори след таймаута. Проектът я третира като загубено съобщение. Стойността е 0, т.е. същата като `pdFAIL`.
+
+## tskNO_AFFINITY | tskNO_AFFINITY
+Стойност за ядро: "изпълнявай на което и да е ядро". `xTaskCreate` (без Pinned) използва нея. Проектът винаги закача задачите на конкретно ядро с `xTaskCreatePinnedToCore` ([[dual-core]]).
+
+## tskIDLE_PRIORITY | tskIDLE_PRIORITY
+Приоритет 0 (на idle задачата). Всяка приложна задача трябва да е над него, иначе не получава процесор, когато има друго готово ([[priority]]).
+
+## configMAX_PRIORITIES | configMAX_PRIORITIES
+Брой приоритетни нива. В ESP-IDF е 25 (0..24). По-високите се дават на системните задачи (Wi-Fi, esp_timer); приложните остават ниски ([[priority]]).
+
+## configASSERT | configASSERT(условие)
+Вътрешна проверка в FreeRTOS: ако условието е лъжа (напр. `xQueueSend` с `NULL` опашка, или mutex, взет от ISR), системата спира с паника ([[panic]]). Дава ясно съобщение вместо тихо повреждане на паметта.
+
+## xTaskCreate | xTaskCreate(код, име, стек, параметър, приоритет, &дръжка)
+Създава задача, която може да работи на всяко ядро. Параметри: функцията на задачата (безкраен цикъл, не се връща), име за лог, размер на стека в БАЙТОВЕ (при ESP-IDF; във FreeRTOS по принцип е в думи, [[task-stack]]), аргумент, приоритет и (по избор) указател за дръжката. Връща `pdPASS` или грешка при липса на памет. В проекта се използва вариантът със закачане към ядро: [[xTaskCreatePinnedToCore]].
+
+## xTaskCreateStatic | xTaskCreateStatic(...) и StaticTask_t
+Като `xTaskCreate`, но стекът и управляващата структура се подават от викащия (глобални масиви), така че няма `malloc` и никога не свършва паметта по време на изпълнение ([[static-alloc]]). Проектът ползва динамичното създаване, понеже задачите се правят веднъж при старт.
+
+## vTaskDelete | vTaskDelete(дръжка)
+Изтрива задача. `vTaskDelete(NULL)` изтрива извикващата (задача, която е свършила работата си, трябва да се изтрие, а не просто да излезе от функцията, иначе системата паникьосва). Паметта се освобождава от idle задачата ([[idle-task]]), затова тя трябва да получава време.
+
+## vTaskDelayUntil | vTaskDelayUntil(&последно, период)
+Блокира задачата до момент "последно + период" и обновява "последно". За разлика от `vTaskDelay`, времето за работа в цикъла не се натрупва: периодът остава точен (напр. всеки 100 ms). Задачата първо запомня `TickType_t last = xTaskGetTickCount();`.
+
+## xTaskGetTickCount | xTaskGetTickCount()
+Връща тиковете от стартиране на планировчика (`TickType_t`). Навива се след ~49,7 дни при 1 ms тик, затова се сравнява с изваждане ([[wraparound]]). За по-точно и по-дълго време има `esp_timer_get_time()`.
+
+## vTaskSuspend | vTaskSuspend / vTaskResume
+`vTaskSuspend(дръжка)` спира задача, докато не се извика `vTaskResume(дръжка)`. За разлика от блокирането, няма таймаут и събитие: само външна команда. Рядко е правилният избор: по-безопасно е задачата да чака на опашка или известие ([[blocking]]).
+
+## vTaskPrioritySet | vTaskPrioritySet / uxTaskPriorityGet
+Сменя или чете приоритета на задача във времето на изпълнение. Бърза промяна на приоритета може да създаде неочаквани гладувания ([[starvation]]); проектът задава приоритети само при създаването.
+
+## uxTaskGetStackHighWaterMark | uxTaskGetStackHighWaterMark(дръжка)
+Връща най-малкия свободен стек, останал на задачата от старта (в байтове при ESP-IDF). `NULL` означава "тази задача". Под ~300 байта е опасно ([[stack-hwm]]).
+
+## pcTaskGetName | pcTaskGetName(дръжка)
+Връща името на задачата, дадено при създаване (`"gw_radio"`). Показва се в логове и в паническо съобщение.
+
+## eTaskGetState | eTaskGetState(дръжка)
+Връща състоянието: `eRunning`, `eReady`, `eBlocked`, `eSuspended`, `eDeleted` ([[task-states]]). Полезно при диагностика.
+
+## vTaskList | vTaskList / vTaskGetRunTimeStats
+Печатат таблица с всички задачи: състояние, приоритет, свободен стек, използвано време на процесора. Изискват разрешени "trace facility" и "run time stats" в `sdkconfig`. Основният инструмент за разбиране защо система е бавна ([[cpu-load]]).
+
+## xTaskNotify | xTaskNotify(дръжка, стойност, действие)
+По-гъвкавото известие ([[notify]]): освен "събуди" може да зададе стойност или битове. Действие: `eNoAction` (само събуди), `eSetBits` (OR на битове), `eIncrement` (като Give), `eSetValueWithOverwrite`, `eSetValueWithoutOverwrite`. Така едно известие носи кои събития са станали (радио, срок, заявка).
+
+## xTaskNotifyWait | xTaskNotifyWait(изчисти_при_вход, изчисти_при_изход, &стойност, таймаут)
+Блокира, докато не дойде известие, и връща стойността (битовете). Позволява да се чака на няколко причини наведнъж. Различно от `ulTaskNotifyTake`, което само брои и изчиства.
+
+## xTaskNotifyFromISR | xTaskNotifyFromISR(...)
+Версията на [[xTaskNotify]] за прекъсване ([[isr-safe]]). Последният аргумент е указател към `BaseType_t`, в който се връща дали е събудена по-приоритетна задача; после се вика `portYIELD_FROM_ISR`.
+
+## xQueueSendToBack | xQueueSendToBack / xQueueSendToFront
+`xQueueSend` е същото като `xQueueSendToBack`: слага в края. `xQueueSendToFront` слага най-отпред (спешно съобщение, което да се обработи първо). И двете КОПИРАТ елемента в опашката ([[queue-semantics]]).
+
+## xQueueSendFromISR | xQueueSendFromISR(опашка, &елемент, &събудена)
+Записва в опашка от ISR, без да блокира ([[isr-safe]]). Ако е пълна, връща `errQUEUE_FULL`, не чака. Третият аргумент казва дали е събудена по-приоритетна задача.
+
+## xQueueReceiveFromISR | xQueueReceiveFromISR(...)
+Чете елемент от опашка в ISR без блокиране. Рядко се ползва: обикновено ISR пише, а задачата чете.
+
+## xQueuePeek | xQueuePeek(опашка, &елемент, таймаут)
+Чете елемента, но го ОСТАВЯ в опашката (за разлика от `xQueueReceive`, който го премахва). Полезно, когато искаш да видиш какво е следващото, преди да решиш да го вземеш.
+
+## xQueueOverwrite | xQueueOverwrite(опашка, &елемент)
+За опашка с дължина 1: записва нова стойност върху старата без да чака. Така опашката държи "последно състояние" (напр. последна температура), не поредица. Четецът ползва `xQueuePeek`.
+
+## uxQueueMessagesWaiting | uxQueueMessagesWaiting(опашка)
+Колко елемента чакат в опашката. `uxQueueSpacesAvailable` казва колко места остават. Полезни за лог и защита ("ако е над 80% запълнена, изхвърли най-старото"), но стойността може да се промени веднага след четенето ([[race-condition]]).
+
+## xQueueReset | xQueueReset(опашка) и vQueueDelete
+`xQueueReset` изпразва опашката. `vQueueDelete` я унищожава и освобождава паметта (опашка, на която чака задача, не бива да се трие).
+
+## xSemaphoreCreateBinary | xSemaphoreCreateBinary()
+Създава двоичен семафор ([[semaphore]]). ВНИМАНИЕ: започва ПРАЗЕН (стойност 0), т.е. първият `Take` блокира. За сигнал "стана събитие" е точно това, което трябва. За защита на ресурс се ползва [[xSemaphoreCreateMutex]], който започва свободен.
+
+## xSemaphoreCreateCounting | xSemaphoreCreateCounting(максимум, начало)
+Броячен семафор: стойност от 0 до максимум. Всяко `Give` увеличава, всяко `Take` намалява. Брои събития (чакащи пакети) или ресурси (3 свободни буфера).
+
+## xSemaphoreCreateRecursiveMutex | xSemaphoreCreateRecursiveMutex()
+Mutex, който същата задача може да вземе няколко пъти (с `xSemaphoreTakeRecursive`), без да се блокира сама. Трябва да се върне същия брой пъти. Нужен, когато функция под заключване вика друга, която също заключва.
+
+## xSemaphoreGiveFromISR | xSemaphoreGiveFromISR(семафор, &събудена)
+Дава семафор от ISR ([[isr-safe]]). Подходящо за "ISR съобщава на задача": но в проекта се ползва по-лекото известие ([[notify]]). Не може да се ползва за mutex (той има собственик, а ISR не е задача).
+
+## vSemaphoreDelete | vSemaphoreDelete(семафор)
+Унищожава семафор или mutex и освобождава паметта. Не трябва да чака задача на него.
+
+## EventGroupHandle_t | EventGroupHandle_t и xEventGroupCreate
+Дръжка към група от битове (24 бита използваеми). `xEventGroupCreate()` я създава. Виж [[event-group]].
+
+## xEventGroupSetBits | xEventGroupSetBits(група, битове)
+Вдига (OR) битове в групата и събужда задачите, чието условие вече е изпълнено. Версията `FromISR` минава през задачата за таймери.
+
+## xEventGroupWaitBits | xEventGroupWaitBits(група, битове, изчисти, чакай_всички, таймаут)
+Блокира, докато битовете са вдигнати: `чакай_всички=pdTRUE` значи ВСИЧКИ ("Wi-Fi И MQTT"), `pdFALSE` значи ПОНЕ ЕДИН. `изчисти=pdTRUE` ги нулира при връщане. Връща стойността на групата.
+
+## xEventGroupClearBits | xEventGroupClearBits(група, битове)
+Нулира битове (събитието вече не е вярно: Wi-Fi се е разкачил). Връща стойността преди изчистването.
+
+## TimerHandle_t | TimerHandle_t, xTimerCreate, xTimerStart, xTimerStop
+Софтуерни таймери на RTOS ([[sw-timer]]). `xTimerCreate(име, период_в_тикове, автоповторение, id, колбек)` създава (спрян), `xTimerStart` пуска, `xTimerStop` спира, `xTimerReset` рестартира отброяването. Колбекът работи в специалната задача за таймери, затова е кратък и не блокира. В проекта за срокове се ползва `esp_timer`.
+
+## portMUX_TYPE | portENTER_CRITICAL(&mux) и portMUX_TYPE
+Критична секция ([[critical-section]]). В ESP-IDF, защото има две ядра, към нея се подава spinlock: `static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED; portENTER_CRITICAL(&mux); ... portEXIT_CRITICAL(&mux);`. Спира прекъсванията на това ядро и заключва другото. Кратко, без `printf` и без блокиращи функции. В ISR е `portENTER_CRITICAL_ISR`.
+
+## vTaskSuspendAll | vTaskSuspendAll / xTaskResumeAll
+Спира планировчика на това ядро (няма превключване на задачи), но прекъсванията работят. По-леко от критична секция, но не защитава от ISR и от другото ядро. Рядко се ползва в ESP-IDF.
+
+## xPortGetCoreID | xPortGetCoreID()
+Връща на кое ядро се изпълнява кодът (0 или 1). Полезно в лог за проверка на закачането ([[dual-core]]).
+
+## esp_get_free_heap_size | esp_get_free_heap_size()
+Свободен хийп в байтове ([[heap]]). `esp_get_minimum_free_heap_size()` е най-ниската стойност от старта (показва най-лошия момент и помага да се намери изтичане, [[mem-leak]]).

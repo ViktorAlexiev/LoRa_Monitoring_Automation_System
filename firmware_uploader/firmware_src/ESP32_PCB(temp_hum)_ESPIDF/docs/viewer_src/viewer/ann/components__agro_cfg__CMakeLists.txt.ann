@@ -1,0 +1,1 @@
+1..4: `idf_component_register(...)` ([[component]]) за компонента `agro_cfg`: един .cpp (`cfg_parse.cpp`), публична папка `include`, зависимости `agro_core` (JSON, NVS, радио времена), `agro_board` (`board_gpio_usable`) и `log`.

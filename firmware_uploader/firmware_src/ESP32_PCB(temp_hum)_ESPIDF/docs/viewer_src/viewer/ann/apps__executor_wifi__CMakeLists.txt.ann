@@ -1,0 +1,5 @@
+1: коментар: ESP-IDF проект `executor_wifi`; билд: `idf.py set-target esp32s3 && idf.py build` от път БЕЗ интервали.
+2: `cmake_minimum_required(VERSION 3.16)`.
+3: `set(EXTRA_COMPONENT_DIRS ...)`: общата папка `components` ([[component]]).
+4: `include($ENV{IDF_PATH}/tools/cmake/project.cmake)`: системата за билд на ESP-IDF.
+5: `project(agro_executor_wifi)`. За разлика от останалите приложения тук няма `include(radiolib_options.cmake)`: не се ползва радио.

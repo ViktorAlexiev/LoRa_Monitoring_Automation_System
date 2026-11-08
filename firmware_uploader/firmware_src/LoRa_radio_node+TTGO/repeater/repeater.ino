@@ -6,26 +6,29 @@
 #include "dedup.h"
 #include "power_mgmt.h"
 #include "radio_io.h"
+#include "debug_log.h"
+#include "rng_seed.h"
 
 void setup() {
-  Serial.begin(115200);   // преди липсваше - сериен дебъг на Repeater беше невъзможен
+  wdt_arm_8s_continuous();   // реален watchdog (8 s) от първия ред
+  DBG_BEGIN(115200);
   loadConfigFromEeprom();
-  randomSeed(micros());   // seed за jitter/backoff
+  seedRandomUnique((const uint8_t*)REPEATER_ID, MODULE_ID_LEN, hbCounter.peek());   // уникален за устройството (ID + nonce брояч)
 
   radio_setup();
   enablePinChangeWake();
-  wdt_arm_8s_continuous();
 
-  Serial.print(F("Repeater modul готов, M_ID=")); Serial.print(REPEATER_ID);
-  Serial.print(F(" RX_freq=")); Serial.print(LORA_FREQ_RX_HZ);
-  Serial.print(F(" TX_freq=")); Serial.print(LORA_FREQ_TX_HZ);
-  Serial.print(F(" sf=")); Serial.print(LORA_SF);
-  Serial.print(F(" bw=")); Serial.println(LORA_BW_HZ);
-  Serial.flush();
+  DBG(F("Repeater modul готов, M_ID=")); DBG(REPEATER_ID);
+  DBG(F(" RX_freq=")); DBG(LORA_FREQ_RX_HZ);
+  DBG(F(" TX_freq=")); DBG(LORA_FREQ_TX_HZ);
+  DBG(F(" sf=")); DBG(LORA_SF);
+  DBG(F(" bw=")); DBGLN(LORA_BW_HZ);
+  DBG_FLUSH();
 }
 
 void loop() {
-  int packetSize = LoRa.parsePacket();
+  wdt_feed();   // "жив съм": ако цикълът се забие, следващият таймаут на watchdog-а рестартира чипа
+  uint8_t packetSize = (uint8_t)LoRa.parsePacket();
   if (packetSize) receive_and_queue(packetSize);
 
   process_pending_forwards();

@@ -1,0 +1,31 @@
+1..34: коментар: неблокиращ автомат (state machine) за достъп до канала: listen-before-talk с CAD. Не знае нищо за радиото: функциите за CAD и случайно число му се подават отвън, за да се тества на компютър. Всяко извикване на `channelAccessPoll()` прави най-много един CAD (няколко ms) и връща веднага. Политики: COMMAND (първи CAD веднага; ако е зает: сондира на всеки `radioCadStepMs()` до срока `radioSensingWindowMs()`; щом е свободен: случаен backoff 0..3 слота и последен CAD; изтече ли срокът: CH_GIVEUP), TELEMETRY_PERSIST (както COMMAND, но при изтекъл срок предава въпреки това: CH_CLEAR; ползва се от sensor и repeater за кадри), TELEMETRY_FORCE и SKIP (heartbeat: един случаен интервал и втори CAD; FORCE предава въпреки заетостта, SKIP се отказва) ([[cad]], [[fsm]]).
+35: `#ifndef CHANNEL_ACCESS_H`: [[header-guard]].
+36: дефинира `CHANNEL_ACCESS_H`.
+38: `<stdint.h>`: [[uint]].
+39: `<stdbool.h>`: `bool`.
+40: `radio_timing.h`: функциите за времената (`radioCadStepMs` и др.).
+41: `agro_hal.h`: `hal_random` (ред 72).
+43: `typedef bool (*ChannelBusyFn)();` определя тип "указател към функция": функция без параметри, която връща `bool`. Така автоматът получава отвън "функция за CAD" ([[func-pointer]]). `true` = каналът е зает.
+44: `typedef uint32_t (*ChannelRandomFn)(uint32_t maxExcl);` тип "указател към функция за случайно число": равномерно в [0, maxExcl).
+46: `CH_POLICY_COMMAND` = 0: политика за команди, ACK, state заявки/отговори.
+47: `CH_POLICY_TELEMETRY_FORCE` = 1: heartbeat, който предава въпреки заетостта.
+48: `CH_POLICY_TELEMETRY_SKIP` = 2: heartbeat, който се отказва, ако е зает.
+49: `CH_POLICY_TELEMETRY_PERSIST` = 3: изчаква канала, но накрая предава (sensor и repeater кадри).
+51: `CH_WAIT` = 0: резултат на `channelAccessPoll`: още не е решено, извикай пак по-късно.
+52: `CH_CLEAR` = 1: предавай сега.
+53: `CH_GIVEUP` = 2: откажи се от този опит.
+55: `struct ChannelAccess {`: състоянието на един опит за достъп до канала ([[struct]]).
+56: `policy`: коя от четирите политики.
+57: `state`: в кое състояние е автоматът (виж `CH_ST_*` в `channel_access.cpp`).
+58: `nextAt`: кога (по `hal_millis()`) да се направи следващата проверка.
+59: `deadline`: кога (по `hal_millis()`) свършва сондирането; ползва се само при COMMAND и PERSIST.
+60: затваря структурата.
+62: `channelAccessStart(ChannelAccess *ca, uint8_t policy)`: започва нов опит (нулира автомата).
+63: `channelAccessPoll(ca, now, busy, rnd)`: една стъпка на автомата: връща `CH_WAIT`, `CH_CLEAR` или `CH_GIVEUP`. `now` е текущото време, `busy` е функцията за CAD, `rnd` е функцията за случайно число.
+65..67: коментар: колко ms да се чака до следващото смислено извикване. Позволява на задачата да блокира, вместо да върти в празно, а чипът да заспи между проверките.
+68: `channelAccessNextMs(const ChannelAccess *ca, uint32_t now)`: връща милисекундите до следващата проверка (0 = веднага).
+70: коментар: стандартната реализация на случайното число.
+71: `inline uint32_t channelRandom(uint32_t maxExcl) {`: подходящата функция за `ChannelRandomFn`. `inline` позволява дефиниция в заглавен файл ([[inline]]).
+72: `return hal_random(maxExcl);` вика хардуерния генератор.
+73: затваря функцията.
+75: `#endif`.

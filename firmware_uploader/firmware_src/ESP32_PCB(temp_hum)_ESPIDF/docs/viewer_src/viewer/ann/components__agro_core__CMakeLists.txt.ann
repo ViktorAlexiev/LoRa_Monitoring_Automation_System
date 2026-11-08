@@ -1,0 +1,6 @@
+1: `set(ИМЕ стойности...)` е команда на CMake за променлива. `AGRO_CORE_REQUIRES` е списък с компонентите, от които зависи `agro_core`: `agro_hal` и `agro_board` (наши), `freertos`, `nvs_flash`, `mbedtls` (криптиране), `esp_system`, `esp_common`, `log`.
+3..4: коментар: cJSON до ESP-IDF 5.x е вграден компонент `json`; от 6.0 е отделен пакет от регистъра.
+5: `if(IDF_VERSION_MAJOR LESS 6)`: CMake условие: главната версия на ESP-IDF е по-малка от 6.
+6: `list(APPEND ... json)` добавя компонента `json` към списъка с зависимости.
+7: `endif()` затваря `if`.
+9..13: `idf_component_register(...)` ([[component]]): `SRCS` са седемте .cpp файла на компонента, `INCLUDE_DIRS "include"` прави заглавните файлове публични, `REQUIRES ${AGRO_CORE_REQUIRES}` подава списъка от ред 1 (`${...}` е стойността на променливата).

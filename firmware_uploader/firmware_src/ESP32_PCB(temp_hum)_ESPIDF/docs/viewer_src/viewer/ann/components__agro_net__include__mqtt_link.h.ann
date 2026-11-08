@@ -1,0 +1,39 @@
+1..15: коментар: MQTT клиент върху esp-mqtt (вътрешна задача, автоматичен reconnect, събития). Заменя PubSubClient. Промени спрямо Arduino версията: абонирането е с QoS 1 и се повтаря при всяко свързване (clean session: брокерът не помни абонаментите); публикуването може да е QoS 1; не се публикува, докато няма връзка (иначе esp-mqtt би натрупал стари съобщения в outbox); съобщенията никога не са retained (освен изричен Last Will на executor_wifi); clean session = true. Колбеците се изпълняват в задачата на esp-mqtt (ядро 0) и трябва да са кратки: само слагат в опашка ([[mqtt]]).
+16: `#ifndef MQTT_LINK_H`: [[header-guard]].
+17: дефинира го.
+19: `<stddef.h>`: `size_t`.
+20: `<stdint.h>`: [[uint]].
+21: `<stdbool.h>`: `bool`.
+23: `MQTT_RECONNECT_MS` = UINT32_C(5000): пауза между опитите за свързване.
+24: `MQTT_RESTART_MS` = 2 минути: ако Wi-Fi има, а MQTT няма толкова време, рестарт.
+25: `MQTT_KEEPALIVE_S` = 30: интервал на keepalive пакетите в секунди; брокерът прекъсва връзката, ако 1,5 пъти този интервал няма трафик.
+26: `MQTT_MAX_TOPIC_LEN` = 96: най-дългият topic.
+28: `typedef void (*MqttMsgFn)(const char *topic, const char *data, size_t dataLen, void *ctx);` тип колбек за получено съобщение ([[func-pointer]]).
+29: `typedef void (*MqttConnFn)(bool connected, void *ctx);` тип колбек за промяна на връзката.
+31: `struct MqttLinkConfig {` всички настройки на клиента ([[struct]]).
+32: `host`: адресът на брокера.
+33: `port`: портът (`uint16_t` стига за 0..65535).
+34: `user`: потребител; празен низ = без автентикация.
+35: `password`.
+36: `clientId`: идентификатор на клиента в брокера.
+37: коментар: Last Will (retained, QoS 1); `lwtTopic = NULL` = без LWT.
+38: `lwtTopic`: topic, на който брокерът публикува, ако клиентът изчезне.
+39: `lwtMessage`: съобщението на LWT.
+40: коментар: абонаментите (с QoS `subQos`), повтарят се при всяко свързване.
+41: `const char *const *subTopics;` масив от указатели към низове (и масивът, и низовете са само за четене).
+42: `subCount`: колко са.
+43: `subQos`: QoS на абонаментите.
+44: `onMessage`: колбекът за съобщения.
+45: `onConnection`: колбекът за промяна на връзката.
+46: `ctx`: контекстът, който се подава на колбеците.
+47: затваря.
+49: коментар: подготвя клиента (копира низовете); свързването почва при `mqtt_link_network_up()`.
+50: `bool mqtt_link_init(const MqttLinkConfig *cfg);`
+51: коментар: вика се, когато мрежата е горе (Wi-Fi got-IP); стартира esp-mqtt еднократно.
+52: `void mqtt_link_network_up(void);`
+54: `bool mqtt_link_connected(void);` `true`, ако има връзка с брокера.
+55: коментар: `false` (без изпращане), ако няма връзка или публикуването е отказано.
+56: `bool mqtt_link_publish(topic, payload, len, qos, retain);` публикува съобщение.
+59: коментар: колко ms Wi-Fi е свързан, а MQTT не (0 = наред); след `MQTT_RESTART_MS` рестарт.
+60: `uint32_t mqtt_link_down_ms(void);`
+62: `#endif`.

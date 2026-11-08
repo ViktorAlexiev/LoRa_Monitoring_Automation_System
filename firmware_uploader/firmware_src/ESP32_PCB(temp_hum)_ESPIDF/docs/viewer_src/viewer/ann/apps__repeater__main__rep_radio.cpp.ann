@@ -1,0 +1,184 @@
+1: включва `rep_radio.h`.
+5: `<string.h>`: `memset`, `memcpy`.
+6: `board_pins.h`: `LORA_DIO1`.
+7: `agro_radio.h`: радио функциите.
+8: `ceiling_counter.h`: брояч за heartbeat.
+9: `channel_access.h`: автомат за достъп до канала.
+10: `crypto_common.h`: `cryptoBuildWirePacket`.
+11: `dedup.h`: `DedupRing`.
+12: `esp_log.h`: логове.
+13: `esp_timer.h`: таймер за heartbeat.
+14: `agro_hal.h`: време, GPIO прекъсване.
+15: включва `board_power.h` за `board_battery_mv()`.
+16: `protocol.h`: `HB_INTERVAL_MS`, `HB_FIRST_MIN_MS`.
+17: `radio_timing.h`.
+19: `TAG`.
+21: `static const RepConfig *s_cfg = nullptr;` указател към конфигурацията (собственост на `app_main`) ([[nullptr]]).
+22: `s_fwdQ`: опашката за препращане.
+23: `s_mutex`: mutex на радиото.
+24: `s_rxTask`: дръжката на задачата `rep_rx`; на нея DIO1 праща notify.
+25: `static DedupRing<DEDUP_BUFFER_SIZE, DEDUP_MAX_LEN> s_dedup;` пръстенът за дубликати: 6 пакета до 32 B ([[dedup]]).
+26: `s_hbCounter`: брояч за heartbeat-а; ползва се само от задачата `rep_fwd`.
+27: `s_counterReady`: дали е инициализиран.
+28: `s_dedupHits`: брояч на отхвърлените дубликати.
+29: `s_hbTimer`: таймерът за heartbeat.
+31: `reached(now, t)`: сравнение със знак, коректно при пренасяне на `hal_millis()` ([[wraparound]]).
+33: `rep_radio_reset(cfg, fwdQ, radioMutex)`: запомня зависимостите.
+34: `s_cfg = cfg;`
+35: `s_fwdQ = fwdQ;`
+36: `s_mutex = radioMutex;`
+37: нулира дръжката на `rx` задачата.
+38: `s_dedup = DedupRing<...>();` присвоява нов празен обект (нулира историята).
+39: `s_counterReady = false;`
+40: `s_dedupHits = 0;`
+41: `s_hbTimer = nullptr;`
+42: затваря.
+44: `rep_dedup_hits()`: връща брояча.
+46: `rep_enter_rx_mode()`: връща радиото в приемане на RX честотата.
+47: `radio_set_frequency(s_cfg->freqRxHz);` честотата се сменя в standby.
+48: `radio_listen();` започва непрекъснат прием и включва прекъсването на DIO1.
+49: затваря.
+51: `rep_radio_begin()`: стартира радиото.
+52: `RadioParams p;` параметри.
+53: `p.freqHz = freqRxHz` (започва на RX честотата).
+54: `p.sf`.
+55: `p.bwHz`.
+56: `p.txPowerDbm`.
+57: `radio_setup(&p, 0)`: 0 = опитва, докато успее (repeater-ът е постоянно захранен); при неуспех (теоретично) `false`.
+58: `rep_enter_rx_mode();`
+59: `return true;`
+60: затваря.
+62: коментар: раздел приемане.
+63: коментар: `buf` е прочетеното (до 32 B), `len` е истинската дължина на пакета.
+64: `static void rxHandle(const uint8_t *buf, int32_t len)`: обработва един получен пакет. [[static]]
+65: `i = min(len, DEDUP_MAX_LEN)`: по-дълъг от буфера се отрязва (документирано).
+66: `i <= 0` -> нищо.
+74..75: коментар: ако точно тези байтове вече са препратени наскоро (дублиран прием, напр. чут и от двама repeater-и от предишното ниво), се пропуска. Пакетът не се променя при препращане, затова дубликатите са байт по байт еднакви.
+76: `s_dedup.seen(buf, (uint8_t)i)` ако е виждан ...
+77: ... `s_dedupHits++` ...
+78: ... лог ...
+79: ... `return`.
+80: затваря.
+81: `s_dedup.add(buf, (uint8_t)i);` запомня пакета ВЕДНАГА, преди да знае дали опашката ще го приеме.
+83: `FwdItem it;` елемент за опашката.
+84: нулира го.
+85: `kind = FWD_KIND_FRAME`.
+86: `len = i`.
+87: копира байтовете.
+88: `sendAt = hal_millis() + hal_random(50)`: най-рано след случайни 0..49 ms.
+89: `xQueueSend(s_fwdQ, &it, 0) == pdTRUE`: слага копие на елемента в опашката без чакане (0 тика); `pdTRUE` = успех ([[queue]]).
+90: лог за приет пакет.
+91: `} else {` опашката е пълна ...
+92: коментар: пълна е много рядко (4 едновременни препращания): пакетът се губи.
+93: лог на грешка.
+94: затваря.
+95: затваря.
+97: `rep_rx_service()`: чете всички чакащи пакети.
+98: `uint8_t buf[DEDUP_MAX_LEN];` буфер на стека.
+99: `for (int32_t k = 0; k < 16; k++)`: най-много 16 пакета в един ход (защита от безкраен цикъл).
+100: `n = radio_read_packet(buf, sizeof(buf));`
+101: `RADIO_RX_NONE` -> няма повече -> `break`.
+102: `RADIO_RX_CRC_ERROR` -> `continue`: повреден пакет не се препраща.
+103: `rxHandle(buf, n);`
+104: затваря цикъла.
+105: `hal_irq_rearm(LORA_DIO1);` включва прекъсването: DIO1 е паднал, защото флаговете са изчистени.
+106: затваря.
+108: коментар: раздел препращане и heartbeat.
+109..110: коментар: CAD се прави на TX честотата (там ще предаваме); `s_cadRan` помни дали е правен CAD в този ход, за да се върне радиото на RX само тогава.
+111: `static bool s_cadRan = false;`
+112: `static bool cadOnTxFreq()`: функцията за CAD, която се подава на автомата ([[func-pointer]]).
+113: `s_cadRan = true;`
+114: сменя честотата на TX.
+115: `return channelActive();` CAD на TX честотата.
+116: затваря.
+118: `static bool transmitNow(const uint8_t *buf, uint8_t len)`: предава веднага.
+119: изрично сменя на TX честотата.
+120: `radio_transmit(buf, len)`.
+121: връща радиото на RX.
+122: `return ok;`
+123: затваря.
+125: `void rep_fwd_process(const FwdItem &it)`: обработва елемент (вика се от задачата `rep_fwd`).
+126: коментар: изчаква планираното време (backoff/jitter); mutex-ът НЕ се държи, `rx` продължава да приема.
+127: `now`.
+128: ако още не е времето, `hal_delay_ms(sendAt - now)`.
+131: `batMv` е стойността на батерията за този heartbeat; по подразбиране "няма измерване".
+132: батерията се мери само за heartbeat и само ако е включена опцията - ПРЕДИ да се вземе mutex-ът на радиото (ADC отнема 20-30 ms и приемането не бива да чака).
+134..136: коментар: FORWARD (PERSIST): изчаква паузата след чуждо предаване (напр. друг repeater препраща същия кадър, иначе се предава върху него и кадърът се губи); ако каналът е запушен целия срок, предава въпреки това; HB при зает канал се пропуска до следващия.
+137: `ChannelAccess ca;`
+138: `channelAccessStart(&ca, kind == HB ? SKIP : PERSIST)`: за heartbeat политика SKIP, за кадър PERSIST.
+140: `for (;;) {` цикъл, докато автоматът не реши.
+141: `xSemaphoreTake(s_mutex, portMAX_DELAY);` взема mutex-а на радиото; `portMAX_DELAY` = чака безкрайно ([[mutex]]).
+149: `s_cadRan = false;`
+150: `r = channelAccessPoll(&ca, hal_millis(), cadOnTxFreq, channelRandom);` една стъпка на автомата с CAD на TX честотата.
+151: `if (r == CH_WAIT) {` още не е решено ...
+152: ... ако е правен CAD, връща радиото на RX (между проверките слушаме) ...
+153: ... `w` = колко да чака ...
+154: ... `xSemaphoreGive(s_mutex);` освобождава mutex-а: `rep_rx` може да приема ...
+155: ... `hal_delay_ms(w > 0 ? w : 1);` заспива ...
+156: ... `continue;` пак от началото.
+157: затваря.
+159: `if (it.kind == FWD_KIND_FRAME) {` кадър: автоматът е решил (CLEAR; PERSIST никога не връща GIVEUP) ...
+160: ... `transmitNow(it.buf, it.len)` предава оригиналните байтове ...
+161: ... успех: лог ...
+162: ... провал: лог на грешка.
+163: `} else if (r == CH_CLEAR) {` heartbeat и каналът е свободен ...
+164: ... инициализира брояча при първо ползване ...
+165: ... `uint32_t ctr;` ...
+166: `uint8_t wire[CRYPTO_OVERHEAD + HB_BAT_PT_LEN];` буфер за wire пакета: 14 B (без батерия) или 16 B (с батерия) - вторият случай е максимумът.
+167: ... `s_hbCounter.next(&ctr)` ...
+168: коментар: с батерия heartbeat-ът носи mV (int16, little-endian) и е 16 B; без батерия е 14 B както досега.
+169: `pt` са двата байта на батерията (little-endian): младшият байт, после старшият.
+170: `ptLen`: 2 байта plaintext с батерия, 0 без (старият 14-байтов heartbeat).
+171: строи пакета; `ptLen ? pt : NULL` - без батерия plaintext няма и пакетът е 14 B.
+172: продължение: втората част на извикването - указателят към plaintext и дължината му.
+173: ... ако е построен и предаден: лог ...
+174: ... иначе връща радиото на RX.
+175: `} else {` ...
+176: ... броячът не се записа: връща на RX.
+177: затваря.
+178: `} else {` heartbeat и `CH_GIVEUP` (зает) ...
+179: ... връща радиото на RX ...
+180: ... лог: пропуска този heartbeat.
+181: затваря.
+182: `xSemaphoreGive(s_mutex);` освобождава mutex-а.
+183: `return;` излиза от функцията: елементът е обработен.
+184: затваря цикъла.
+185: затваря.
+187: `rep_hb_due()`: слага heartbeat в опашката.
+188: `FwdItem it;`
+189: нулира.
+190: `kind = FWD_KIND_HB`.
+191: `sendAt = now + random(1000)`: jitter, разминава heartbeat-ите на различни repeater-и.
+192: `xQueueSend(...) != pdTRUE` -> опашката е пълна -> предупреждение.
+193: затваря.
+195: коментар: раздел задачите.
+196: коментар: еднократен таймер, който сам се пререгистрира; първият срок е на случайна фаза (виж `HB_FIRST_MIN_MS`).
+197: `static void hbTimerCb(void *)`: колбекът на `esp_timer` (изпълнява се в задачата на esp_timer, затова е кратък).
+198: `rep_hb_due();`
+199: ако таймерът съществува, стартира го отново за `HB_INTERVAL_MS` (в µs).
+200: затваря.
+202: `void rep_rx_task(void *)`: тялото на задачата `rep_rx`. `void *` е параметър, който не се ползва ([[freertos-task]]).
+203: `s_rxTask = xTaskGetCurrentTaskHandle();` запомня дръжката си: ISR-ът ще я известява.
+204: взема mutex-а.
+205: стартира радиото.
+206: освобождава mutex-а.
+207: `hal_irq_attach(LORA_DIO1, s_rxTask);` закача прекъсването.
+209: структура за таймера.
+210: `callback = hbTimerCb`.
+211: `name = "rep_hb"`.
+212: създава таймера ...
+213: ... и го стартира на случайно време между 1 s и 304 s (`hal_random_range(...)` в ms, умножено по 1000 за µs).
+214: затваря.
+216: `for (;;) {` главен цикъл.
+218: `ulTaskNotifyTake(pdTRUE, portMAX_DELAY);` блокира, докато ISR не го събуди; `pdTRUE` = нулира брояча при връщане; чака безкрайно: така чипът заспива между пакетите ([[notify]]).
+219: взема mutex-а.
+220: `rep_rx_service();` чете пакетите.
+221: освобождава mutex-а.
+222: затваря цикъла.
+223: затваря.
+225: `void rep_fwd_task(void *)`: задачата `rep_fwd`.
+226: `FwdItem it;` място за елемента.
+227: `for (;;) {`
+229: `xQueueReceive(s_fwdQ, &it, portMAX_DELAY) == pdTRUE`: блокира, докато има елемент, копира го в `it`; после `rep_fwd_process(it)` ([[queue]]).
+230: затваря цикъла.
+231: затваря.

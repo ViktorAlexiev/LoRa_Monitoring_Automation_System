@@ -1,0 +1,59 @@
+1..15: коментар: gateway (ESP-IDF) е мост LoRa <-> MQTT. ESP32-S3 е двуядрен: на ядро 1 работи `gw_radio` (приоритет 10), единственият собственик на SX1262; на ядро 0 работи `gw_cmd` (приоритет 5): команди, ACK, таймаути, JSON, MQTT публикуване, заедно с Wi-Fi стека и esp-mqtt (системни задачи на ядро 0). Task Watchdog (30 s, с рестарт): `gw_radio` и `gw_cmd` са абонирани и го "хранят" на всяка обиколка; ако някоя не го направи, чипът се рестартира. Двете задачи се будят поне веднъж на 5 s. Блокиращо Wi-Fi/MQTT свързване на ядро 0 не може да отнеме ефирно време от приемането. Между ядрата има само опашки: `gwInQ` и `radioInQ`. Gateway е на мрежово захранване: няма сън.
+16: `board_pins.h`.
+19: `esp_log.h`.
+20: `esp_task_wdt.h`: `esp_task_wdt_config_t`, `esp_task_wdt_reconfigure`, `esp_task_wdt_init`.
+21: `gw_config.h`.
+22: `gw_logic.h`.
+23: `gw_radio.h`.
+24: `agro_hal.h`.
+25: включва `board_power.h`.
+26: `mqtt_link.h`.
+27: `wifi_link.h`.
+29: `TAG`.
+31: `static GwConfig s_cfg;` статична конфигурация: задачите държат указател към нея.
+32: `static const char *const kSubTopics[2] = {TOPIC_COMMANDS, TOPIC_STATE_REQ};` масив от 2 низа (и указателите, и текстовете са константи): темите, на които gateway се абонира. Префиксът `k` е конвенция за константа ([[naming]]).
+34: `static void onGotIp(void *) { mqtt_link_network_up(); }` колбек при получаване на IP: стартира MQTT. Параметърът е без име (не се ползва).
+36: `GW_TASK_WDT_TIMEOUT_MS` = UINT32_C(30000): таймаут на watchdog-а в ms.
+38..39: коментар: Task Watchdog: 30 s и РЕСТАРТ. Системата го стартира преди `app_main` (`CONFIG_ESP_TASK_WDT_INIT`); ако не е, стартираме го тук ([[watchdog]]).
+40: `static void configureTaskWdt()`.
+41: `esp_task_wdt_config_t cfg = {};` нулирана структура с настройките.
+42: `cfg.timeout_ms = 30000`.
+43: `cfg.idle_core_mask = (UINT32_C(1) << portNUM_PROCESSORS) - 1;` маска от битове за ядрата, чиито idle задачи се наблюдават: при 2 ядра `(1 << 2) - 1 = 3` = двата бита (ядро 0 и ядро 1).
+44: `cfg.trigger_panic = true;` при изтичане: паника и рестарт.
+45: `esp_err_t e = esp_task_wdt_reconfigure(&cfg);` променя настройките на вече стартиран watchdog.
+46: ако watchdog не е стартиран (`ESP_ERR_INVALID_STATE`), го стартира с `esp_task_wdt_init(&cfg)`.
+47: при друга грешка: лог (няма защита от зависване).
+48: затваря.
+50: `extern "C" void app_main(void) {` ([[extern-c]]).
+51: gateway: ключът на интерфейсите остава ИЗКЛЮЧЕН (нищо не е закачено към него).
+52: `hal_nvs_init();`
+53: `gw_config_load(&s_cfg);`
+54: ако липсва ID, ключ или мрежова конфигурация ...
+55: ... лог с кое липсва ...
+56: ... `return`.
+57: затваря.
+59: `configureTaskWdt();`
+61: `gwInQ = xQueueCreate(16, sizeof(GwMsg));` опашка за 16 съобщения: радио + MQTT -> логика ([[queue]]).
+62: `radioInQ = xQueueCreate(4, sizeof(TxReq));` опашка за 4 заявки: логика -> радио.
+64: `gw_radio_reset(&s_cfg, gwInQ, radioInQ);`
+65: `gw_logic_reset(&s_cfg, gwInQ, radioInQ);`
+67: `TaskHandle_t radioTask = nullptr;`
+68: създава `gw_radio` със стек 5120 B, приоритет 10, ядро 1; `&radioTask` получава дръжката ([[freertos-task]]).
+71: `gw_radio_set_task(radioTask);`
+72: `gw_logic_set_radio_task(radioTask);` логиката ще буди радио задачата при нова заявка.
+73: създава `gw_cmd` със стек 6144 B, приоритет 5, ядро 0.
+77: `MqttLinkConfig mc = {};` нулирана конфигурация на MQTT.
+78: `mc.host = s_cfg.mqttHost;`
+79: `mc.port = s_cfg.mqttPort;`
+80: `mc.user = s_cfg.mqttUser;`
+81: `mc.password = s_cfg.mqttPass;`
+82: `mc.clientId = s_cfg.id;` ID-то на gateway е client id.
+83: `mc.subTopics = kSubTopics;`
+84: `mc.subCount = 2;`
+85: `mc.subQos = 1;`
+86: `mc.onMessage = gw_mqtt_on_message;` колбекът за съобщения.
+87: `mqtt_link_init(&mc);` подготвя клиента (резултатът не се проверява).
+88: `wifi_link_start(ssid, pass, onGotIp, nullptr);` стартира Wi-Fi; при IP се вика `onGotIp` и започва MQTT.
+90: лог "готов".
+91: (продължение).
+92: затваря.

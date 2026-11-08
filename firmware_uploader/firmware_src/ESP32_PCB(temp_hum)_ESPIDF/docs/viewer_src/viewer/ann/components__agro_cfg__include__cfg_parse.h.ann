@@ -1,0 +1,31 @@
+1..22: коментар: разбор и запис на конфигурацията (етап 1 на двуетапното качване). Програмата на Python (Firmware Uploader) праща по серийния порт ред `CFG:{...JSON...}` с полетата `id`, `freq`, `freq_tx`, `sf`, `bw`, `key`, `consumers`, `net`, `wifi_*`, `mqtt_*`. Само `id` е задължително. Записва в NVS със същите ключове и типове като Arduino версията. Ключът `ceil` не се пипа тук. Разликите от Arduino версията са по-строги проверки: числата се валидират, пинът трябва да е използваем, над 10 консуматора и повтарящи се ID са NACK, парсерът е истински JSON, а не търсене на подниз.
+23: `#ifndef CFG_PARSE_H`: [[header-guard]].
+24: дефинира го.
+28: `<stddef.h>`: `size_t`.
+29: `<stdbool.h>`: `bool`.
+30: `cfg_limits.h`: дължините на Wi-Fi/MQTT низовете.
+32: `CFG_MODULE_ID_LEN` = 6: дължина на ID на модул.
+33: `CFG_CONSUMER_ID_LEN` = 4: дължина на ID на консуматор.
+34: `CFG_MAX_CONSUMERS` = 10.
+35: `CFG_LINE_MAX` = 2048: най-дългият приеман ред по серийния порт.
+37: `CFG_REASON_LEN` = 96: място за причината при NACK.
+39: `struct CfgReply {` отговорът на разбора ([[struct]]).
+40: `bool ack;` `true` = приета, `false` = NACK.
+41: `char reason[CFG_REASON_LEN];` причината при NACK (текст).
+42: затваря.
+44: `bool cfg_is_config_line(const char *line);` дали редът започва с `CFG:`.
+46: коментар: валидира ЦЕЛИЯ пакет и чак тогава записва в NVS; при NACK нищо не се променя.
+47: `void cfg_apply_line(const char *line, CfgReply *reply);` приема реда, връща отговор през указателя `reply`.
+49..50: коментар: `CfgLineBuffer` натрупва символи от серийния порт до нов ред; `feed()` връща `true`, когато има цял ред; прекалено дълъг ред се изхвърля цял.
+51: `class CfgLineBuffer {` ([[class]]).
+52: `public:`.
+53: `bool feed(int32_t c);` подава един символ (стойността от `getchar`: `int32_t`, защото може да е -1).
+54: `const char *line() const { return buf_; }` връща натрупания ред.
+55: `bool overflowed();` `true` веднъж след препълване.
+57: `private:`.
+58: `char buf_[CFG_LINE_MAX + 1];` буферът: 2048 символа и нула.
+59: `size_t len_ = 0;` колко символа са натрупани.
+60: `bool overflow_ = false;` ако редът е надвишил лимита.
+61: `bool reportOverflow_ = false;` да се докладва препълването.
+62: затваря класа.
+64: `#endif`.

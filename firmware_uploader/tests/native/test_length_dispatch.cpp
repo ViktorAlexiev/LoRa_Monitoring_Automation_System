@@ -13,8 +13,8 @@
 // Реални wire дължини, копирани от gateway/lora_handlers.cpp и executor/radio_io.cpp
 // (стойностите, не логиката - логиката се пресъздава тук изрично и се сравнява).
 #define MODULE_ID_LEN 6
-#define SENSOR_PT_LEN 16
-#define SENSOR_WIRE_LEN (CRYPTO_OVERHEAD + SENSOR_PT_LEN)                      // 30
+#define SENSOR_PT_LEN 8     // 4 x int16 (компактен формат, x100)
+#define SENSOR_WIRE_LEN (CRYPTO_OVERHEAD + SENSOR_PT_LEN)                      // 22
 #define HB_WIRE_LEN (CRYPTO_OVERHEAD)                                          // 14
 #define ACK_PT_LEN 6
 #define ACK_WIRE_LEN (CRYPTO_OVERHEAD + ACK_PT_LEN)                            // 20
@@ -92,7 +92,7 @@ TEST(documented_wire_length_constants_match_expected_values) {
   // "живи" регресионни проверки на конкретните числа, обсъждани в документацията -
   // ако някой промени CRYPTO_OVERHEAD или полетата, тестът явно се чупи.
   ASSERT_EQ((int)CRYPTO_OVERHEAD, 14);
-  ASSERT_EQ((int)SENSOR_WIRE_LEN, 30);
+  ASSERT_EQ((int)SENSOR_WIRE_LEN, 22);
   ASSERT_EQ((int)HB_WIRE_LEN, 14);
   ASSERT_EQ((int)ACK_WIRE_LEN, 20);
   ASSERT_EQ((int)CMD_WIRE_LEN, 26);

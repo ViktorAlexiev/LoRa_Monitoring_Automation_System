@@ -112,7 +112,10 @@ bool mqttIsConnected() {
 void publishJson(const char* topic, JsonDocument& doc) {
   char buf[512];
   size_t n = serializeJson(doc, buf, sizeof(buf));
-  if (!mqttClient.publish(topic, buf, n)) {
+  // ВАЖНО: (const uint8_t*) + изрично retain=false. Без каста (topic, char*, size_t) се избира
+  // publish(const char*, const char*, boolean retained) и n става retain=true - всяко съобщение
+  // на gateway-я би останало запазено в брокера и би се доставяло като "ново" на всеки абонат.
+  if (!mqttClient.publish(topic, (const uint8_t*)buf, n, false)) {
     Serial.print("[MQTT] publish ПРОВАЛ, topic="); Serial.print(topic);
     Serial.print(" len="); Serial.println(n);
   }

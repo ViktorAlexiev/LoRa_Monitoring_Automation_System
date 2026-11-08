@@ -1,0 +1,12 @@
+1: `CONFIG_IDF_TARGET="esp32s3"`: целевият чип ([[sdkconfig]]).
+2: `CONFIG_FREERTOS_HZ=1000`: тик 1 ms.
+3: `CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096`.
+4: `CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y`: flash 4 MB.
+5: коментар: esp-mqtt и Wi-Fi стекът са на ядро 0; изпълнението на ядро 1.
+6: `CONFIG_MQTT_TASK_CORE_SELECTION_ENABLED=y`: позволява избор на ядро за задачата на esp-mqtt.
+7: `CONFIG_MQTT_USE_CORE_0=y`: на ядро 0.
+8: коментар: постоянно захранен: без Power Management и лек сън.
+9: коментар: `crypto_common.cpp` (компонент `agro_core`) се компилира във всяко приложение, което ползва компонента, и иска CMAC (в IDF е изключен по подразбиране).
+10: `CONFIG_MBEDTLS_CMAC_C=y`: включва CMAC, за да се компилира успешно (дори и да не се ползва).
+11: коментар: без Task Watchdog по желание на заданието.
+12: `CONFIG_ESP_TASK_WDT_INIT=n`: не стартира Task Watchdog ([[watchdog]]).

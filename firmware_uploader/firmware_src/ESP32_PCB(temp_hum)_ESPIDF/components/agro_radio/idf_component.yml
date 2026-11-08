@@ -1,0 +1,3 @@
+# RadioLib - същата версия, с която са пуснати хост тестовете (tests/native/espidf/third_party/RadioLib).
+dependencies:
+  jgromes/radiolib: "~7.8.1"

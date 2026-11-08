@@ -1,0 +1,22 @@
+1: `#ifndef EW_CONFIG_H`: [[header-guard]].
+2: дефинира го.
+4: `<stdint.h>`.
+5: `<stdbool.h>`.
+6: `cfg_limits.h`.
+7: `consumers.h`.
+8: `protocol.h`.
+10: `struct EwConfig {` настройките на Wi-Fi executor ([[struct]]); `Ew` = executor Wi-Fi.
+11: `char id[MODULE_ID_LEN + 1];` ID.
+12: `ConsumerSet consumers;` консуматорите.
+13: `wifiSsid`.
+14: `wifiPass`.
+15: `mqttHost`.
+16: `mqttPort`.
+17: `mqttUser`.
+18: `mqttPass`.
+19: `bool hasId;`
+20: `bool hasNet;` Няма ключ и радио настройки: модулът не ползва LoRa.
+21: затваря.
+23: коментар: NVS (пространство `cfg`): `id`, `nc`, `c<i>i`, `c<i>p`, `wssid`, `wpass`, `mqip`, `mqport` (низ), `mquser`, `mqpass`.
+24: `void ew_config_load(EwConfig *c);`
+26: `#endif`.

@@ -1,0 +1,1 @@
+1..4: `idf_component_register(...)`: компонентът `main` е приложението. `SRCS` са четирите файла, `INCLUDE_DIRS "."` (текущата папка) прави заглавните файлове тук достъпни, `REQUIRES` са зависимостите: `agro_hal`, `agro_core`, `agro_radio`, `agro_board` (наши), `esp_driver_i2c` (новият I2C драйвер), `esp_driver_gpio`, `log` ([[component]]).

@@ -1,0 +1,15 @@
+1: `CONFIG_IDF_TARGET="esp32s3"`: целевият чип ([[sdkconfig]]).
+2: `CONFIG_FREERTOS_HZ=1000`: тик 1 ms.
+3: `CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096`: стек на главната задача.
+4: `CONFIG_MBEDTLS_CMAC_C=y`: CMAC в mbedTLS.
+5: `CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y`: flash 4 MB.
+6: коментар: esp-mqtt и Wi-Fi стекът са на ядро 0; радио приложението е на ядро 1.
+7: `CONFIG_MQTT_TASK_CORE_SELECTION_ENABLED=y`: позволява избор на ядро за задачата на esp-mqtt.
+8: `CONFIG_MQTT_USE_CORE_0=y`: задачата на esp-mqtt работи на ядро 0.
+9: коментар: gateway е на мрежово захранване: без Power Management и лек сън.
+10: коментар: Task Watchdog: 30 s и РЕСТАРТ (по подразбиране в ESP-IDF само пише предупреждение); `app_main` го настройва и изрично.
+11: `CONFIG_ESP_TASK_WDT_INIT=y`: системата стартира Task Watchdog преди `app_main` ([[watchdog]]).
+12: `CONFIG_ESP_TASK_WDT_TIMEOUT_S=30`: таймаут 30 секунди.
+13: `CONFIG_ESP_TASK_WDT_PANIC=y`: при изтичане предизвиква паника и рестарт.
+14: коментар: прекъсването на DIO1 е в IRAM (EspHal на RadioLib инсталира GPIO службата с `ESP_INTR_FLAG_IRAM`): `gpio_intr_disable()` от ISR трябва да е в IRAM ([[iram]]).
+15: `CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y`: GPIO функциите са в IRAM.

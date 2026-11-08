@@ -1,0 +1,28 @@
+1: начало на защитата от двойно включване ([[header-guard]]).
+2: дефинира `RADIO_IO_H`.
+4: `<Arduino.h>`.
+6: `LORA_NSS` (10) ([[spi]]).
+7: `LORA_DIO0` (2).
+8: `LORA_RST` (9).
+11: coding rate 4/5.
+12: мощност 17 dBm.
+13: преамбюл 8.
+14: sync word 0x12.
+16: `CMD_ON` (0xA1): командата за включване.
+17: `CMD_OFF` (0xB2): командата за изключване.
+18: `STATUS_ACK` (0): успех.
+19: `STATUS_NACK` (2): отказ.
+21: `JITTER_MAX_MS`: случайна пауза преди heartbeat до 1 s.
+22: интервал между диагностичните съобщения при неуспешен старт на радиото (10 s).
+24: `radio_setup()`: стартира радиото.
+26: `radioReceivePoll()`: проверява за пакет и го разпознава.
+27: `processRx()`: изпълнява командите.
+28: `ackManager()`: праща узрелия ACK.
+29: `radioTxTick()`: върти достъпа до канала и предава.
+33: `heartbeat_tick()`: разписание на heartbeat-а.
+34: `heartbeat_pending()`: чака ли heartbeat.
+40: `sendRestartStateResponse()`: вика се веднъж от `setup()`.
+41: `restartRespManager()`: повторенията.
+42: `restart_response_pending()`: пази съня, докато чака ACK.
+44: `radio_tx_busy()`: има ли пакет в процес на предаване.
+46: край на защитата.

@@ -1,0 +1,6 @@
+1: коментар: ESP-IDF проект `gateway`; билд: `idf.py set-target esp32s3 && idf.py build` от път БЕЗ интервали.
+2: `cmake_minimum_required(VERSION 3.16)`.
+3: `set(EXTRA_COMPONENT_DIRS ...)`: общата папка `components` ([[component]]).
+4: `include($ENV{IDF_PATH}/tools/cmake/project.cmake)`: системата за билд на ESP-IDF.
+5: включва `radiolib_options.cmake`.
+6: `project(agro_gateway)`.

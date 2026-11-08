@@ -1,0 +1,27 @@
+1..10: коментар: repeater (ESP-IDF) препраща uplink пакети (sensor, heartbeat-и) от RX честотата на TX честотата и праща свой heartbeat. НЕ препраща downlink (команди/ACK): те минават само между gateway и executor. Задачи на ядро 1 (ядро 0 остава свободно, няма Wi-Fi): `rep_rx` (приоритет 6) приема по DIO1, `rep_fwd` (приоритет 5) прави backoff, достъп до канала и предаване. Радиото е едно: mutex между двете. Heartbeat: `esp_timer` на ~5 минути. Енергия: автоматичен лек сън.
+11: `board_pins.h`: `LORA_DIO1`.
+13: `esp_log.h`.
+14: `agro_hal.h`.
+15: включва `board_power.h`.
+16: `power.h`: `power_enable_auto_light_sleep`.
+17: `rep_config.h`.
+18: `rep_radio.h`.
+20: `TAG`.
+22: `static RepConfig s_cfg;` конфигурацията в глобална памет: задачите получават указател към нея и тя трябва да живее вечно (не на стека на `app_main`, който може да приключи).
+24: `extern "C" void app_main(void) {` входната точка ([[extern-c]]). За разлика от sensor, тя завършва: задачите продължават да работят.
+25: repeater: ключът на интерфейсите остава ИЗКЛЮЧЕН (нищо не е закачено към него), но пиновете се освобождават и стават LOW.
+26: `hal_nvs_init();`
+27: `rep_config_load(&s_cfg);`
+28: ако няма ID или ключ ...
+29: ... лог ...
+30: ... `return`: радиото не стартира.
+31: затваря.
+33: `QueueHandle_t fwdQ = xQueueCreate(FWD_QUEUE_SIZE, sizeof(FwdItem));` създава опашка за 4 елемента по `sizeof(FwdItem)` байта (опашката копира елементите) ([[queue]]).
+34: `SemaphoreHandle_t mutex = xSemaphoreCreateMutex();` създава mutex с наследяване на приоритет ([[mutex]]).
+36: `rep_radio_reset(&s_cfg, fwdQ, mutex);` подава ги на радио слоя.
+38: `xTaskCreatePinnedToCore(rep_rx_task, "rep_rx", 4096, nullptr, 6, nullptr, 1);` създава задача: функция, име, стек 4096 B, аргумент (няма), приоритет 6, дръжка (не се иска), ядро 1 ([[freertos-task]]).
+39: същото за `rep_fwd` с приоритет 5.
+45: `power_enable_auto_light_sleep(LORA_DIO1);` включва автоматичния лек сън с DIO1 като източник за събуждане.
+47: лог "готов" с ID и честотите.
+48: (продължение на аргументите).
+49: затваря `app_main`. След връщането ESP-IDF изтрива главната задача; `rep_rx` и `rep_fwd` продължават.

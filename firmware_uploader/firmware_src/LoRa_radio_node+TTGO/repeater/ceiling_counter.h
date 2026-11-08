@@ -17,15 +17,16 @@
 
 #include <Arduino.h>
 
-#define CEILING_COMMIT_INTERVAL 100UL
+#define CEILING_COMMIT_INTERVAL UINT32_C(100)
 
 class CeilingCounter {
   public:
-    void begin(int eepromAddr);
+    void begin(uint16_t eepromAddr);
     uint32_t next();   // връща следваща безопасна стойност за ползване, commit-ва в EEPROM при нужда
+    uint32_t peek() const { return current; }   // следващата стойност БЕЗ да я консумира (за seed на random())
 
   private:
-    int addr;
+    uint16_t addr;
     uint32_t current;
     uint32_t committed;
 };

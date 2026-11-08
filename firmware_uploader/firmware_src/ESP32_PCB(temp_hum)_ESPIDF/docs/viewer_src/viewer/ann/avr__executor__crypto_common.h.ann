@@ -1,0 +1,25 @@
+24: начало на защитата от двойно включване ([[header-guard]]).
+25: дефинира `CRYPTO_COMMON_H`.
+27: `<Arduino.h>`: типове.
+29: `CRYPTO_KEY_LEN`: ключът е 16 байта (AES-128) ([[aes]]).
+30: `CRYPTO_ID_LEN`: ID на подателя е 6 байта.
+31: `CRYPTO_CNT_LEN`: броячът в пакета е 4 байта.
+32: `CRYPTO_TAG_LEN`: MAC етикетът е съкратен до 4 байта ([[cmac]]).
+33: `CRYPTO_OVERHEAD`: ID + брояч + етикет = 14 байта допълнителни към всеки пакет. Това е дължината на heartbeat-а без данни.
+36: `CRYPTO_MAX_PT`: най-големият plaintext е 50 байта (10 консуматора x 5 байта).
+40: `CRYPTO_TYPE_SENSOR` (1): типът влиза в nonce-а, но НЕ се праща по въздуха. Получателят знае очаквания тип от контекста ([[nonce]]).
+41: `CRYPTO_TYPE_REPEATER_HB` (2): heartbeat на repeater.
+42: `CRYPTO_TYPE_EXEC_HB` (3): heartbeat на executor.
+43: `CRYPTO_TYPE_EXEC_ACK` (4): ACK/NACK от executor.
+44: `CRYPTO_TYPE_GW_CMD` (5): команда от gateway.
+45: `CRYPTO_TYPE_STATE_REQ` (6): заявка за състояния (празен plaintext).
+46: `CRYPTO_TYPE_STATE_RESP` (7): отговор на изрична заявка.
+47: `CRYPTO_TYPE_STATE_RESP_RESTART` (8): автоматичен отговор веднага след boot.
+48: `CRYPTO_TYPE_STATE_RESP_ACK` (9): потвърждение само за варианта след рестарт.
+52: `cryptoBuildWirePacket`: строи пакета (криптира и слага етикет). Върнатият `uint8_t` е общата дължина; буферът трябва да е поне `ptLen + 14`.
+53: продължение на декларацията: ID на подателя (6 байта), броячът и ...
+54: ... указателят към plaintext-а и дължината му.
+59: `cryptoParseWirePacket`: проверява MAC и декриптира. `false` при невалиден етикет - тогава `plaintextOut` не бива да се ползва.
+60: продължение на декларацията: очакваният тип, място за ID на подателя, място за plaintext ...
+61: ... и място за дължината на plaintext-а.
+63: край на защитата.

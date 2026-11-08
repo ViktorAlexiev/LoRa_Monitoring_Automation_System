@@ -4,6 +4,6 @@
 #include <Arduino.h>
 
 bool consumerExists(const char* c_id);
-int consumerIndex(const char* c_id);
+int8_t consumerIndex(const char* c_id);   // -1 ако няма такъв
 
 #endif

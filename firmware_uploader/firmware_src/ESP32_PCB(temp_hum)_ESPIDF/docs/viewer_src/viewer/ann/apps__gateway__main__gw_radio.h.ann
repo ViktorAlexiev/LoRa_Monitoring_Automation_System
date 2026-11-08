@@ -1,0 +1,24 @@
+1..12: коментар: `gw_radio` е радио слоят на gateway. ЕДНА задача (`gw_radio`, ядро 1, най-висок приоритет) е единственият собственик на SX1262: приема (DIO1), декриптира, валидира, dedup-ва и предава командите. Не прави JSON и не говори с MQTT: това е на ядро 0 (`gw_cmd`), така че блокиращо Wi-Fi/MQTT свързване или бавна публикация не могат да отнемат ефирно време от приемането. `gw_radio` праща `GwMsg` към `gw_cmd` (sensor, heartbeat, ACK, state response), а `gw_cmd` праща `TxReq` към `gw_radio` (команда, state request, state-resp ACK). Предаването е със политика COMMAND: неблокиращ достъп до канала в рамките на задачата, без да се прекъсва приемането между проверките ([[gateway]]).
+13: `#ifndef GW_RADIO_H`: [[header-guard]].
+14: дефинира го.
+16: `<stdint.h>`.
+17: `<stdbool.h>`.
+18: `freertos/FreeRTOS.h`.
+19: `freertos/queue.h`.
+20: `freertos/task.h`.
+21: `gw_config.h`.
+22: `gw_types.h`.
+24: `GW_RADIO_MAX_WAIT_MS` = UINT32_C(5000): най-много толкова блокира задачата: Task Watchdog иска признаци на живот.
+25: `GW_RX_BUF_MAX` = 220: буфер за приемане (максимумът на LoRa е 255 B).
+26: `GW_DEDUP_BUFFER_SIZE` = 8: колко пакета помни dedup.
+27: `GW_DEDUP_MAX_LEN` = 14 + 50 = 64: най-големият пакет в системата.
+28: `GW_TX_QUEUE_SIZE` = 4: опашка за предаване.
+30: `gw_radio_reset(cfg, gwInQ, radioInQ)`: подава зависимостите и нулира състоянието.
+32: коментар: една обиколка; връща ms до следващото задължително повикване (`0xFFFFFFFF` = само събитие).
+33: `uint32_t gw_radio_service(void);`
+35: `void gw_radio_set_task(TaskHandle_t t);`
+36: `void gw_radio_task(void *arg);` тялото на задачата.
+38: коментар: за наблюдение и тестове.
+39: `int32_t gw_radio_dedup_hits(void);`
+40: `bool gw_radio_tx_active(void);`
+42: `#endif`.

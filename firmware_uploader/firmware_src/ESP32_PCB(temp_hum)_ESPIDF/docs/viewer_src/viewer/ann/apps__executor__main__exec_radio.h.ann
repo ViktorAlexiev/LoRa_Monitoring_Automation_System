@@ -1,0 +1,27 @@
+1..15: коментар: `exec_radio` е радио слоят на LoRa изпълнителя. ЕДНА задача (`exec_radio`) е единственият собственик на SX1262: приема (събуждане от DIO1), строи и изпраща всичко (ACK/NACK, state response, restart response, heartbeat) и върти неблокиращия достъп до канала. Останалите задачи говорят с нея само през опашки (`exec_radio` -> `exec_cmd` за команди; `exec_cmd` -> `exec_radio` за ACK заявки). Няма гонка за SPI и няма нужда от mutex. Задачата не върти в празно: `exec_radio_service()` връща след колко ms има следващо задължително събитие и задачата чака точно толкова в `ulTaskNotifyTake()`. Събужда я още DIO1, нова заявка от опашката или таймерът на HB. Когато няма какво да се чака, блокира безкрайно и чипът заспива ([[executor]]).
+16: `#ifndef EXEC_RADIO_H`: [[header-guard]].
+17: дефинира го.
+19: `<stdint.h>`.
+20: `<stdbool.h>`.
+21: `exec_config.h`.
+22: `exec_types.h`.
+23: `freertos/FreeRTOS.h`.
+24: `freertos/queue.h`.
+25: `freertos/task.h`.
+27: `EXEC_WAIT_FOREVER` = UINT32_C(0xFFFFFFFF): специална стойност "чакай безкрайно" (най-голямото `uint32_t`). `UINT32_C(...)` прави литерала точно 32-битов без знак.
+29: коментар: подготвя състоянието (чисто начално при всяко стартиране) и опашките.
+30: `exec_radio_reset(cfg, cmdQ, ackInQ)`.
+32..33: коментар: една обиколка: приема, обработва, строи и изпраща; връща ms до следващото задължително повикване (`EXEC_WAIT_FOREVER` = само при събитие).
+34: `uint32_t exec_radio_service(void);`
+36: коментар: заявка за автоматичен state response след boot (RESTART вариант; чака ACK от gateway до 3 опита).
+37: `void exec_radio_request_restart_response(void);`
+39: коментар: от таймера на HB (контекст на задачата на `esp_timer`): вдига флаг и буди радио задачата.
+40: `void exec_radio_hb_due(void);`
+42: `void exec_radio_set_task(TaskHandle_t t);` запомня дръжката на радио задачата.
+44: коментар: само за наблюдение и тестове.
+45: `bool exec_radio_tx_busy(void);` дали е зает TX слотът.
+46: `bool exec_radio_restart_pending(void);` дали чака restart отговорът.
+47: `int32_t exec_radio_ack_pending(void);` колко ACK чакат.
+49: коментар: тялото на задачата `exec_radio`.
+50: `void exec_radio_task(void *arg);`
+52: `#endif`.

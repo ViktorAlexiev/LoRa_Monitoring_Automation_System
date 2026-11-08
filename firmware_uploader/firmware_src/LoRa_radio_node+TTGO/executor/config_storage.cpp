@@ -13,14 +13,14 @@ CeilingCounter txCounter;
 
 uint8_t pinFromString(const char *s) {
   if (s[0] >= 'A' && s[0] <= 'Z' && s[1] != 0) {
-    return A0 + atoi(s + 1);   // буква+число -> аналогов пин
+    return (uint8_t)(A0 + atoi(s + 1));   // буква+число -> аналогов пин
   }
   return (uint8_t)atoi(s);      // чисто число -> цифров пин
 }
 
 void loadConfigFromEeprom() {
-  int addr = EEPROM_ADDR_MODULE_ID;
-  for (int i = 0; i < MODULE_ID_LEN; i++) MY_M_ID[i] = EEPROM.read(addr++);
+  uint16_t addr = EEPROM_ADDR_MODULE_ID;
+  for (uint8_t i = 0; i < MODULE_ID_LEN; i++) MY_M_ID[i] = EEPROM.read(addr++);
   MY_M_ID[MODULE_ID_LEN] = 0;
 
   NUM_CONSUMERS = EEPROM.read(EEPROM_ADDR_NUM_CONSUMERS);
@@ -28,18 +28,18 @@ void loadConfigFromEeprom() {
 
   addr = EEPROM_ADDR_CONSUMERS;
   for (uint8_t i = 0; i < NUM_CONSUMERS; i++) {
-    for (int j = 0; j < CONSUMER_ID_LEN; j++) consumerList[i][j] = EEPROM.read(addr++);
+    for (uint8_t j = 0; j < CONSUMER_ID_LEN; j++) consumerList[i][j] = EEPROM.read(addr++);
     consumerList[i][CONSUMER_ID_LEN] = 0;
 
     char pinStr[PIN_LEN + 1];
-    for (int j = 0; j < PIN_LEN; j++) pinStr[j] = EEPROM.read(addr++);
+    for (uint8_t j = 0; j < PIN_LEN; j++) pinStr[j] = EEPROM.read(addr++);
     pinStr[PIN_LEN] = 0;
     consumerPins[i] = pinFromString(pinStr);
   }
 
   uint32_t storedFreq;
   EEPROM.get(EEPROM_ADDR_FREQUENCY, storedFreq);
-  if (storedFreq == 0 || storedFreq == 0xFFFFFFFFUL) {
+  if (storedFreq == 0 || storedFreq == UINT32_C(0xFFFFFFFF)) {
     LORA_FREQ_HZ = LORA_FREQ_DEFAULT_HZ;
   } else {
     LORA_FREQ_HZ = storedFreq;

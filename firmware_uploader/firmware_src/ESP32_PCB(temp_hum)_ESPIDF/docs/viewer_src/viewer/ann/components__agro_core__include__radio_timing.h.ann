@@ -1,0 +1,44 @@
+1..14: коментар: единственото място, откъдето се извеждат всички времена на радио слоя от текущите SF/BW: символно време, Time-on-Air (формулата на Semtech AN1200.13), CAD timeout, стъпка на сондиране, изчакване за телеметрия и ACK timeout-и. Нищо не е хардкодвано в милисекунди. Чиста логика без радио или SPI зависимости, затова се тества на компютър; формулите са сверени с RadioLib. LDRO (Low Data Rate Optimization) е нужна при символно време над 16 ms ([[lora-timing]]).
+15: `#ifndef RADIO_TIMING_H`: [[header-guard]].
+16: дефинира `RADIO_TIMING_H`.
+18: `<stdint.h>`: [[uint]].
+19: `<stddef.h>`: `size_t`.
+21: `RADIO_SF_MIN` = 7: най-малкият spreading factor ([[sf]]).
+22: `RADIO_SF_MAX` = 12: най-големият.
+23: `RADIO_SF_DEFAULT` = 7: по подразбиране.
+24: `RADIO_BW_DEFAULT_HZ` = UINT32_C(125000): по подразбиране ширина на канала 125 kHz ([[bw]]).
+26..27: коментар: индексът на BW в NVS: 0 = 62,5 kHz, 1 = 125 kHz, 2 = 250 kHz; 0xFF или друго -> подразбиране.
+28: `RADIO_BW_INDEX_COUNT` = 3: колко са поддържаните ширини.
+30..32: коментар: CAD сканира няколко символа. Повече символи = по-надеждно, но радиото е "глухо" по-дълго.
+33: `RADIO_CAD_SYMBOLS` = 2: броят символи при всеки CAD (допустими стойности на SX126x: 1, 2, 4, 8, 16).
+35: коментар: размерите на пакетите, върху които се смятат времената (wire байтове, включително 14 B overhead).
+36: `RADIO_MAX_PAYLOAD_LEN` = 64: най-дългият пакет (state response с 10 консуматора).
+37: `RADIO_TELEMETRY_LEN` = 30: данни от сензор (с запас).
+38: `RADIO_CMD_WIRE_LEN` = 26: команда gateway -> executor.
+39: `RADIO_ACK_WIRE_LEN` = 20: ACK/NACK, state заявка, state-resp ACK.
+41: коментар: паузата на executor преди ACK (half-duplex: gateway трябва да излезе от TX и да влезе в RX).
+42: `RADIO_EXEC_ACK_DELAY_MS` = 500: 500 ms пауза.
+43: коментар: груба обработка при отсрещната страна.
+44: `RADIO_PROCESSING_MS` = 200: 200 ms за декриптиране, публикуване в MQTT и т.н.
+46: `bool radioSfValid(uint8_t sf);` декларация: валиден ли е SF (7..12).
+47: `radioBwFromIndex(idx)`: BW в Hz от индекс; 0 при невалиден индекс.
+48: `radioBwToIndex(bwHz)`: индекс от BW; 0xFF при неподдържан.
+50..51: коментар: `radioTimingInit` задава текущите параметри; невалидните sf/bw се заменят с подразбиращи се. `crcOn`: дали радио-ниво CRC е включен.
+52: `radioTimingInit(sf, bwHz, crDenom, preambleLen, crcOn)`.
+54: `radioSf()`: връща текущия SF.
+55: `radioBw()`: текущия BW в Hz.
+56: `radioCrDenom()`: знаменателя на coding rate (5..8).
+57: `radioPreambleLen()`: дължината на преамбюла.
+59: `radioSymbolUs()`: Ts, дължината на един символ в микросекунди.
+60: `radioLdroNeeded()`: `true`, ако Ts > 16 ms.
+61: `radioToaMs(payloadLen)`: Time-on-Air за пакет, закръглен НАГОРЕ до милисекунда.
+63: `radioCadTimeoutMs()`: горна граница за приключването на CAD: (RADIO_CAD_SYMBOLS + 3) x Ts + 5 ms.
+64: `radioCadStepMs()`: стъпка на сондиране и слот на backoff: по-голямото от CAD timeout и 4 x Ts.
+65: `radioSensingWindowMs()`: `toa(64 B)`: най-дългото възможно чуждо предаване.
+66: `radioTelemetryWaitMs()`: `toa(30 B)`.
+67: `radioSlotMs()`: слот на случайния backoff, равен на стъпката.
+69: коментар: ACK timeout-ите нямат долна граница: на ниско SF са къси, на високо растат.
+70: `radioAckTimeoutCmdMs()`: команда -> ACK.
+71: `radioAckTimeoutRestartMs()`: restart state response -> ACK.
+72: `radioStateReqTimeoutMs()`: state заявка -> state отговор.
+74: `#endif`.
