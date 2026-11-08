@@ -216,6 +216,13 @@ def _give_up(db, kind: str, obj, reason: str, now):
     same commit, before anyone else gets to read it."""
     obj.desired_state = obj.current_state
     obj.last_command_failed = True
+    # No answer does not prove the command was NOT executed (the reply may
+    # have been lost on the way), so ask the module what its consumers really
+    # are right now - _apply_consumer_state then fixes current_state, and
+    # clears the failure if the consumer turned out to be in the wanted state.
+    if obj.executor_id and not db.query(models.StateRefreshRequest).filter_by(
+            executor_id=obj.executor_id, sent_at=None).first():
+        db.add(models.StateRefreshRequest(executor_id=obj.executor_id))
     print(f"reconciler: giving up on {kind} {obj.id} - {reason}")
 
 
@@ -257,6 +264,21 @@ def _on_commands_status(client, userdata, msg):
         db.close()
 
 
+def _clear_failure_if_done(db, model, id_field, obj, state):
+    """The last command timed out (no reply), but the module now reports the
+    very state that command asked for: it was executed, only the answer got
+    lost - so it is not a failure after all."""
+    if not obj.last_command_failed:
+        return
+    last = (
+        db.query(model).filter(getattr(model, id_field) == obj.id)
+        .order_by(model.id.desc()).first()
+    )
+    if last is not None and last.status == "timeout" and last.requested_state == state:
+        obj.last_command_failed = False
+        print(f"reconciler: {obj.id} reports '{state}' - the timed-out command had in fact been executed")
+
+
 def _apply_consumer_state(db, consumer_id: str, state: str, now):
     """Drift correction from module_states_response - we're being told the
     actual physical state directly, not confirming a command we issued, so
@@ -268,6 +290,7 @@ def _apply_consumer_state(db, consumer_id: str, state: str, now):
         return
     valve = db.get(models.Valve, consumer_id)
     if valve is not None:
+        _clear_failure_if_done(db, models.ValveCommand, "valve_id", valve, state)
         if valve.current_state != state:
             print(f"reconciler: resync drift on valve {consumer_id}: db had "
                   f"'{valve.current_state}', device reports '{state}' - correcting")
@@ -275,6 +298,8 @@ def _apply_consumer_state(db, consumer_id: str, state: str, now):
             valve.current_updated_at = now
         return
     pump = db.get(models.Pump, consumer_id)
+    if pump is not None:
+        _clear_failure_if_done(db, models.PumpCommand, "pump_id", pump, state)
     if pump is not None and pump.current_state != state:
         print(f"reconciler: resync drift on pump {consumer_id}: db had "
               f"'{pump.current_state}', device reports '{state}' - correcting")

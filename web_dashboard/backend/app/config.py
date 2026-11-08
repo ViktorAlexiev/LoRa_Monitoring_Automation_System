@@ -52,6 +52,20 @@ _DEFAULTS = {
         # problem, not just bad luck once.
         "frequent_restart_count": 3,
         "frequent_restart_window_minutes": 15,
+        # SENSOR_OUTLIER (and the zone average's outlier filter, zone_stats.py):
+        # a sensor counts as "different from the others" only if it is further
+        # from the MEDIAN of the others than BOTH this many standard deviations
+        # of the others AND the per-field minimum difference below (real
+        # units - without it two sensors a hair apart in a calm zone would
+        # look like outliers). The alarm needs it for this many readings in a
+        # row, so a single glitch or the minutes after a watering do not
+        # raise it. Tuned on simulated zones (see the commit message).
+        "outlier_sigma": 3,
+        "outlier_min_diff_soil_t": 4,
+        "outlier_min_diff_soil_h": 10,
+        "outlier_min_diff_air_t": 5,
+        "outlier_min_diff_air_h": 15,
+        "outlier_consecutive_readings": 3,
     },
     "security": {
         # Sliding window (see app/auth.py) - a logged-in user's session is

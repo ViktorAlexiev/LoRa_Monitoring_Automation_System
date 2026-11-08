@@ -125,6 +125,7 @@ the dashboard for zone_id=None ones) is written here.
 import sys
 import time
 import datetime
+import statistics
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -132,7 +133,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app import models  # noqa: E402
 from app.config import CONFIG  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
-from app.zone_stats import zone_average  # noqa: E402
+from app.zone_stats import outlier_flags, zone_average  # noqa: E402
 
 
 TICK_SECONDS = 30
@@ -359,7 +360,7 @@ def _check_command_failures(db):
             _open_or_refresh(
                 db, "VALVE_COMMAND_TIMEOUT", "critical",
                 f"{_nm('Клапан', valve)} не изпълни командата{ctx[0]} — устройството не отговори.{ctx[1]} "
-                f"Проверете дали е включено и има връзка.",
+                f"Системата пита модула за състоянието; провери го и ръчно („Обнови състоянието“).",
                 zone_id=valve.zone_id, valve_id=valve.id,
             )
         else:
@@ -373,7 +374,7 @@ def _check_command_failures(db):
             _open_or_refresh(
                 db, "PUMP_COMMAND_TIMEOUT", "critical",
                 f"{_nm('Помпа', pump)} не изпълни командата{ctx[0]} — устройството не отговори.{ctx[1]} "
-                f"Проверете дали е включена и има връзка.",
+                f"Системата пита модула за състоянието; провери го и ръчно („Обнови състоянието“).",
                 pump_id=pump.id,
             )
         else:
@@ -615,42 +616,59 @@ def _check_threshold_misconfigured(db):
 
 
 def _check_sensor_outlier(db):
-    """Leave-one-out, not a plain population stddev: with only 3-5 sensors
-    typical per zone, including the candidate itself in the mean/stddev it's
-    being judged against lets an extreme value inflate its own stddev
-    enough to "mask" itself out of detection. Comparing each sensor against
-    the OTHERS' mean/stddev (excluding itself) avoids that."""
+    """SENSOR_OUTLIER (warning): a sensor reads very differently from the
+    others in its zone. The test itself is zone_stats.outlier_flags (median of
+    the others, k standard deviations AND a minimum difference in real units).
+    On top of it the sensor must be flagged for several readings IN A ROW
+    (config outlier_consecutive_readings): round r takes every sensor's r-th
+    newest reading, so a single glitch, or the few readings after a watering
+    when the sensors near the valve get wet first, doesn't raise it.
+    Sensors that have not reported within the averaging window are left out
+    (an offline sensor is SENSOR_OFFLINE's business, not an outlier)."""
+    cfg = CONFIG["health_checks"]
+    rounds = max(1, int(cfg["outlier_consecutive_readings"]))
+    fresh_after = datetime.datetime.utcnow() - datetime.timedelta(
+        minutes=CONFIG["sensor_readings"]["averaging_window_minutes"])
     fields = {"soil_t": "почвена температура", "soil_h": "почвена влажност",
               "air_t": "въздушна температура", "air_h": "въздушна влажност"}
     for zone in db.query(models.Zone).all():
-        sensors_with_readings = [s for s in zone.sensors if s.readings]
+        recent = {}  # sensor -> its newest `rounds` readings, newest first
+        for s in zone.sensors:
+            rows = (
+                db.query(models.SensorReading).filter_by(sensor_id=s.id)
+                .order_by(models.SensorReading.recorded_at.desc()).limit(rounds).all()
+            )
+            if len(rows) == rounds and rows[0].recorded_at >= fresh_after:
+                recent[s] = rows
         outlier_desc = {}  # sensor_id -> [field descriptions]
-        if len(sensors_with_readings) >= 3:
+        if len(recent) >= 3:
             for attr, label in fields.items():
-                pairs = [(s, getattr(_latest(s), attr)) for s in sensors_with_readings]
-                pairs = [(s, v) for s, v in pairs if v is not None and v != SENSOR_FAULT_VALUE]
-                if len(pairs) < 3:
-                    continue
-                for target_s, target_v in pairs:
-                    others = [v for s, v in pairs if s is not target_s]
-                    other_mean = sum(others) / len(others)
-                    other_var = sum((v - other_mean) ** 2 for v in others) / len(others)
-                    other_std = other_var ** 0.5
-                    deviates = (
-                        abs(target_v - other_mean) > 0.01 if other_std == 0
-                        else abs(target_v - other_mean) > 2 * other_std
-                    )
-                    if deviates:
-                        outlier_desc.setdefault(target_s.id, []).append(
-                            f"{label} {target_v} (при другите: около {other_mean:.1f})"
+                streak = {s: True for s in recent}
+                latest = {}
+                for r in range(rounds):
+                    pairs = [(s, getattr(rows[r], attr)) for s, rows in recent.items()]
+                    pairs = [(s, v) for s, v in pairs if v is not None and v != SENSOR_FAULT_VALUE]
+                    if len(pairs) < 3:
+                        streak = {s: False for s in recent}
+                        break
+                    bad = dict(zip([s for s, _ in pairs], outlier_flags([v for _, v in pairs], attr)))
+                    for s in streak:
+                        streak[s] = streak[s] and bad.get(s, False)
+                    if r == 0:
+                        latest = dict(pairs)
+                for s, still in streak.items():
+                    if still:
+                        others = [v for o, v in latest.items() if o is not s]
+                        outlier_desc.setdefault(s.id, []).append(
+                            f"{label} {latest[s]} (при другите: около {statistics.median(others):.1f})"
                         )
 
-        for s in sensors_with_readings:
+        for s in zone.sensors:
             if s.id in outlier_desc:
                 _open_or_refresh(
                     db, "SENSOR_OUTLIER", "warning",
-                    f"{_nm('Сензор', s)} показва много различно от останалите в „{zone.name}“: "
-                    f"{'; '.join(outlier_desc[s.id])}. Проверете го.",
+                    f"{_nm('Сензор', s)} показва много различно от останалите в „{zone.name}“ "
+                    f"(последните {rounds} отчитания): {'; '.join(outlier_desc[s.id])}. Проверете го.",
                     zone_id=zone.id, sensor_id=s.id,
                 )
             else:

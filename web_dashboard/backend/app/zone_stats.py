@@ -12,12 +12,14 @@ Definition (unchanged from what the dashboard always showed):
     fresh data at all averages to None, "-" on the dashboard). So the zone
     number always matches what the individual sensor tiles show right now;
   - the sensor's -32768 "invalid reading" marker is ignored;
-  - a leave-one-out outlier among the remaining values is excluded before
-    averaging (robust_mean);
+  - an outlier among the remaining values (outlier_flags: far from the
+    others both in standard deviations and in real units) is excluded
+    before averaging (robust_mean);
   - the result is rounded to 1 decimal.
 """
 
 import datetime
+import statistics
 
 from sqlalchemy import func
 from sqlalchemy.orm import object_session
@@ -29,29 +31,39 @@ SENSOR_FAULT_VALUE = -32768.0  # manual 2.1: "this cycle's reading is invalid" m
 ATTRS = ("soil_t", "soil_h", "air_t", "air_h")
 
 
-def robust_mean(values, z_thresh=2.0):
-    """Arithmetic mean, but a value that's a leave-one-out outlier against
-    the rest is excluded first - the exact same test health_checker.py's
-    SENSOR_OUTLIER check uses (each value's deviation from the mean/stddev
-    of the OTHER values, not a population stat that includes itself and can
-    mask its own extremity). This means: a single miscalibrated/glitching
-    sensor can't drag the zone's average off, but as long as everything
-    agrees (the normal case), this is just a plain mean - real legitimate
-    variation between sensors is NOT smoothed away, unlike a straight
-    median would. Needs >=3 values to judge anything (with 2, a "deviation"
-    is meaningless - either one is as valid as the other), so falls back to
-    a plain mean below that."""
-    if len(values) < 3:
-        return sum(values) / len(values)
-    keep = []
+def outlier_flags(values, field):
+    """One bool per value: is it "different from the others"? Leave-one-out
+    (each value is judged against the OTHERS only, so an extreme value can't
+    inflate its own yardstick). It is an outlier only if it is further from
+    the MEDIAN of the others than BOTH k standard deviations of the others
+    and the field's minimum difference in real units (config health_checks).
+    The first test alone fired almost constantly on 3-4 sensors - the
+    spread of just 2-3 "other" numbers is a random, often tiny, yardstick;
+    simulated healthy zones raised it on 40-98 % of readings. Needs >= 3
+    values to judge anything (with 2, either one is as valid as the other).
+    health_checker.py's SENSOR_OUTLIER and the zone average below use this
+    same test, so an alarm and the number on the tile never disagree."""
+    n = len(values)
+    if n < 3:
+        return [False] * n
+    cfg = CONFIG["health_checks"]
+    k = cfg["outlier_sigma"]
+    floor = cfg[f"outlier_min_diff_{field}"]
+    flags = []
     for i, v in enumerate(values):
         others = values[:i] + values[i + 1:]
-        mean_other = sum(others) / len(others)
-        var_other = sum((o - mean_other) ** 2 for o in others) / len(others)
-        std_other = var_other ** 0.5
-        deviates = abs(v - mean_other) > 0.01 if std_other == 0 else abs(v - mean_other) > z_thresh * std_other
-        if not deviates:
-            keep.append(v)
+        flags.append(abs(v - statistics.median(others)) > max(floor, k * statistics.pstdev(others)))
+    return flags
+
+
+def robust_mean(values, field):
+    """Arithmetic mean, but a value that outlier_flags() marks is excluded
+    first - a single miscalibrated/glitching sensor can't drag the zone's
+    average off, but as long as everything agrees (the normal case), this is
+    just a plain mean: real variation between sensors is NOT smoothed away,
+    unlike a straight median would."""
+    flags = outlier_flags(values, field)
+    keep = [v for v, bad in zip(values, flags) if not bad]
     if not keep:  # degenerate case (shouldn't happen in practice) - don't return nothing
         return sum(values) / len(values)
     return sum(keep) / len(keep)
@@ -87,7 +99,7 @@ def zone_averages(zone):
             if r.sensor_id not in latest and v is not None and v != SENSOR_FAULT_VALUE:
                 latest[r.sensor_id] = v
         values = list(latest.values())
-        out[attr] = round(robust_mean(values), 1) if values else None
+        out[attr] = round(robust_mean(values, attr), 1) if values else None
     return out
 
 
