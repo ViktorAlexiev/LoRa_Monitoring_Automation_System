@@ -44,6 +44,11 @@
 // модули с по-слаб PA) - никоя настройка не може да я надвиши. Работната мощност е настройка "txp" в конфигурацията.
 #define LORA_TX_POWER_MIN_DBM   (-9)
 #define LORA_TX_POWER_MAX_DBM   22
+// РЕГУЛАТОРЕН таван за 433.05-434.79 MHz: 10 mW ERP (запис 44b в техническото приложение на решение 2006/771/EC) = 10 dBm ERP
+// = ~12 dBm EIRP. При антена 0 dBi и без загуби в кабела това са ~12 dBm на изхода на радиото; усилването на антената се
+// изважда от тази стойност. Никоя настройка не може да го надвиши. (Duty cycle 10% тук не се налага - виж бележките.)
+#define LORA_TX_POWER_REG_MAX_DBM   12
+#define LORA_TX_POWER_LIMIT_DBM  ((LORA_TX_POWER_MAX_DBM) < (LORA_TX_POWER_REG_MAX_DBM) ? (LORA_TX_POWER_MAX_DBM) : (LORA_TX_POWER_REG_MAX_DBM))
 // Ограничение по тока (OCP). Библиотеката го оставя на 60 mA, което е малко за мощност над около +14 dBm на SX1262
 // (PA тегли ~120 mA при +22 dBm); Semtech по подразбиране задава 140 mA за SX1262.
 #define LORA_CURRENT_LIMIT_MA   140.0f
@@ -70,6 +75,13 @@
 #define BATT_DIV_RATIO_NUM     2      // делител 1:1: Vбат = 2 x Vвход (при други резистори: (R1+R2)/R2 като дроб)
 #define BATT_DIV_RATIO_DEN     1
 #define BATT_SETTLE_MS         20     // колко се изчаква след включване на делителя (RC на делителя + кондензатора на входа)
+
+// Защита на батерията (само при опция "има батерия"): под BATT_CUTOFF_MV устройството спира да работи (дълбок сън);
+// продължава при BATT_RESUME_MV (хистерезис 0.1 V: ~5-10% -> ~10-15% капацитет на литиева клетка). Мери се в покой.
+#define BATT_CUTOFF_MV         3400
+#define BATT_RESUME_MV         3500
+#define BATT_LOW_SLEEP_S       600    // дълбок сън между проверките при ниска батерия (10 минути)
+#define BATT_LOW_SLEEP_US      ((uint64_t)BATT_LOW_SLEEP_S * UINT64_C(1000000))
 
 // Кои GPIO на ESP32-S3 може да ползва потребителят за консуматори (валидира се в config стъпката):
 //   0..21 и 38..48 съществуват; 22..25 ги няма; 26..32 са SPI flash/PSRAM; 33..37 са octal PSRAM

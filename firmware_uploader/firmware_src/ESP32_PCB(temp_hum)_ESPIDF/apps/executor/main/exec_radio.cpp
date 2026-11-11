@@ -11,6 +11,8 @@
 #include "crypto_common.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_task_wdt.h"
+#include "power.h"
 #include "consumers.h"
 #include "agro_hal.h"
 #include "board_power.h"
@@ -206,6 +208,14 @@ static bool restartRespManager() {
   return true;
 }
 
+// ---------------- Ниска батерия ----------------
+void exec_low_battery_shutdown(const ExecConfig *cfg) {
+  ESP_LOGW(TAG, "ниска батерия (под %" PRId32 " mV): консуматорите се изключват, дълбок сън за %" PRId32 " s", (int32_t)BATT_CUTOFF_MV, (int32_t)BATT_LOW_SLEEP_S);
+  consumers_hold_for_deep_sleep(&cfg->consumers);   // консуматорите LOW и заключени за съня
+  board_iface_power(false);                          // интерфейсите се изключват
+  power_deep_sleep_us(BATT_LOW_SLEEP_US);            // заключва и двата ключа; при събуждане app_main пак мери батерията
+}
+
 // ---------------- Heartbeat (криптиран, без данни - само идентичност+counter+MAC) ----------------
 void exec_radio_hb_due(void) {
   s_hbDue.store(true);
@@ -228,6 +238,7 @@ static bool heartbeatTick() {
     uint8_t ptLen = 0;
     if (s.cfg->hasBattery) {
       int16_t mv = board_battery_mv();        // блокира ~20-30 ms (радиото е в покой)
+      if (board_battery_is_low(mv)) exec_low_battery_shutdown(s.cfg);   // под прага: не връща
       pt[0] = (uint8_t)((uint16_t)mv & 0xFF);
       pt[1] = (uint8_t)((uint16_t)mv >> 8);
       ptLen = HB_BAT_PT_LEN;
@@ -393,6 +404,7 @@ static void hbTimerCb(void *) {
 void exec_radio_task(void *) {
   s.task = xTaskGetCurrentTaskHandle();
 
+  esp_task_wdt_add(nullptr);   // от тук задачата трябва да "храни" watchdog-а (мъртъв радио чип -> рестарт след 30 s)
   RadioParams p;
   p.freqHz = s.cfg->freqHz;
   p.sf = s.cfg->sf;
@@ -418,6 +430,8 @@ void exec_radio_task(void *) {
     HAL_STACK_PROBE();
     uint32_t w = exec_radio_service();
     ESP_LOGD(TAG, "следващо събуждане след %" PRIu32 " ms", (uint32_t)w);
-    ulTaskNotifyTake(pdTRUE, w == EXEC_WAIT_FOREVER ? portMAX_DELAY : pdMS_TO_TICKS(w));
+    if (w > AGRO_TASK_WAKE_MAX_MS) w = AGRO_TASK_WAKE_MAX_MS;   // task watchdog: събужда се поне веднъж на 5 s
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(w));
+    esp_task_wdt_reset();
   }
 }

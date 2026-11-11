@@ -8,7 +8,7 @@
 10: `uint32_t freqHz;` честота в Hz.
 11: `uint8_t sf;` spreading factor ([[sf]]).
 12: `uint32_t bwHz;` ширина на канала в Hz.
-13: `int8_t txPowerDbm;` мощност от NVS `txp` (-9..22); по подразбиране `LORA_TX_POWER_DBM`; радиото я ограничава до максимума на модула.
+13: `txPowerDbm`: мощност от NVS `txp` (-9..12); по подразбиране `LORA_TX_POWER_DBM`; радиото я ограничава до модула и регулаторния таван (12 dBm за 433 MHz).
 14: `uint8_t key[CRYPTO_KEY_LEN];` мрежовият ключ (16 байта).
 15: `bool hasKey;` има ли валиден ключ.
 16: `bool hasId;` има ли валиден ID.

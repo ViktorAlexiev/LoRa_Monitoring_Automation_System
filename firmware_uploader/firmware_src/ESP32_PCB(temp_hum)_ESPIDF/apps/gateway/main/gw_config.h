@@ -17,7 +17,7 @@ struct GwConfig {
   uint32_t freqHz;
   uint8_t sf;
   uint32_t bwHz;
-  int8_t txPowerDbm;     // NVS "txp" (-9..22), по подразбиране LORA_TX_POWER_DBM; радиото го ограничава до максимума на модула
+  int8_t txPowerDbm;     // NVS "txp" (-9..12), по подразбиране LORA_TX_POWER_DBM; радиото го ограничава до модула и регулатора (12 dBm за 433 MHz)
   uint8_t key[CRYPTO_KEY_LEN];
   bool hasKey;
   bool hasId;

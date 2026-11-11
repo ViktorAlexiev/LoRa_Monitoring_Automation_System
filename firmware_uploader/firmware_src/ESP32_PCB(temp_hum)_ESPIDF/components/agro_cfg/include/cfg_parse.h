@@ -9,7 +9,7 @@
            "net":"1","wifi_ssid":"MyNet","wifi_password":"secret",
            "mqtt_ip":"192.168.4.2","mqtt_port":"1883","mqtt_user":"","mqtt_password":""}
 
-  Само "id" е задължително. Незадължително "txp":"17" - изходна мощност в dBm (-9..22, до максимума на модула в
+  Само "id" е задължително. Незадължително "txp":"17" - изходна мощност в dBm (-9..12 - регулаторен таван за 433 MHz, до максимума на модула в
   board_pins.h); без него устройствата ползват 17 dBm. "net":"1" изисква wifi_ssid и mqtt_ip. Записва в NVS (namespace "cfg") със
   СЪЩИТЕ ключове и типове като Arduino config_esp32 firmware-а:
     id, freq, freqtx, sf, bw, txp (ново, u8 със знак), key, nc, c<i>i, c<i>p, wssid, wpass, mqip, mqport, mquser, mqpass

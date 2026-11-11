@@ -4,6 +4,7 @@
 #include "agro_hal.h"
 #include "board_pins.h"
 #include "driver/gpio.h"
+#include "esp_attr.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
@@ -12,6 +13,7 @@
 static const char *TAG = "board_power";
 
 static bool s_ifaceOn = false;
+RTC_DATA_ATTR static uint8_t s_batLow = 0;   // хистерезис на батерията: 1 = под прага (преживява дълбокия сън)
 
 // ---------------- Ключове ----------------
 static void pinOutputLow(gpio_num_t pin) {
@@ -47,6 +49,19 @@ void board_power_hold_for_deep_sleep(void) {
   gpio_hold_en((gpio_num_t)IFACE_PWR_EN_GPIO);
   gpio_hold_en((gpio_num_t)BATT_DIV_EN_GPIO);
   gpio_deep_sleep_hold_en();
+}
+
+// ---------------- Защита на батерията ----------------
+bool board_battery_low_flag(void) { return s_batLow != 0; }
+
+bool board_battery_is_low(int16_t mv) {
+  if (mv == BOARD_BATTERY_NODATA) return s_batLow != 0;     // не може да се прецени: състоянието остава
+  if (s_batLow) {
+    if (mv >= BATT_RESUME_MV) s_batLow = 0;                 // пак е над BATT_RESUME_MV: продължава
+  } else if (mv < BATT_CUTOFF_MV) {
+    s_batLow = 1;                                           // под BATT_CUTOFF_MV: спира
+  }
+  return s_batLow != 0;
 }
 
 // ---------------- Батерия ----------------

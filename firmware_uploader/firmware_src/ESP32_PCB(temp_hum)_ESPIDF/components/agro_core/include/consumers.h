@@ -26,6 +26,12 @@ void consumers_load(ConsumerSet *cs, NvsStore *nvs);
 // Конфигурира всички използваеми пинове като изходи, ИЗКЛЮЧЕНИ (съзнателно безопасно състояние при (ре)старт).
 void consumers_init(ConsumerSet *cs);
 
+// Изключва всички консуматори (пиновете LOW).
+void consumers_all_off(const ConsumerSet *cs);
+// Изключва ги и заключва пиновете в LOW за дълбокия сън (иначе в дълбок сън GPIO се връщат в състояние по подразбиране и не
+// са гарантирано LOW). consumers_init() сваля заключването след събуждането.
+void consumers_hold_for_deep_sleep(const ConsumerSet *cs);
+
 int32_t consumers_index(const ConsumerSet *cs, const char *c_id);      // -1 ако няма такъв (сравнява 4 символа)
 bool consumers_usable(const ConsumerSet *cs, int32_t idx);
 void consumers_set(const ConsumerSet *cs, int32_t idx, bool on);

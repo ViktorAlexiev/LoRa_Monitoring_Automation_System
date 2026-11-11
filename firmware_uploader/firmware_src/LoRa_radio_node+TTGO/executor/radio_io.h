@@ -9,7 +9,7 @@
 
 // SF и BW НЕ са константи - идват от EEPROM (LORA_SF/LORA_BW_HZ в config_storage.h)
 #define LORA_CR_DENOM       5
-#define LORA_TX_POWER_DBM   17
+#define LORA_TX_POWER_DBM   12   // 433 MHz: 10 mW ERP = ~12 dBm EIRP при антена 0 dBi (усилването на антената се изважда)
 #define LORA_PREAMBLE_LEN   8
 #define LORA_SYNC_WORD       0x12
 

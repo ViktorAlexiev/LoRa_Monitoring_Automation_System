@@ -14,7 +14,7 @@
 
 // ---------- LoRa параметри (SF и BW идват от NVS) ----------
 #define LORA_CR_DENOM       5
-#define LORA_TX_POWER_DBM   17      // по подразбиране; настройка "txp" в NVS, ограничена до LORA_TX_POWER_MAX_DBM (board_pins.h)
+#define LORA_TX_POWER_DBM   12      // по подразбиране (433 MHz: 10 mW ERP); настройка "txp" в NVS, ограничена до LORA_TX_POWER_LIMIT_DBM (board_pins.h)
 #define LORA_PREAMBLE_LEN   8
 #define LORA_SYNC_WORD      0x12
 #define LORA_FREQ_DEFAULT_HZ UINT32_C(433000000)

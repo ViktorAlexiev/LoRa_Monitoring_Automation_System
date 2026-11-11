@@ -29,7 +29,7 @@ void radio_ram_reset(void) {
 #endif
 
 int8_t radio_clamp_tx_power(int32_t dbm) {
-  if (dbm > LORA_TX_POWER_MAX_DBM) return (int8_t)LORA_TX_POWER_MAX_DBM;
+  if (dbm > LORA_TX_POWER_LIMIT_DBM) return (int8_t)LORA_TX_POWER_LIMIT_DBM;   // модул И регулатор
   if (dbm < LORA_TX_POWER_MIN_DBM) return (int8_t)LORA_TX_POWER_MIN_DBM;
   return (int8_t)dbm;
 }
@@ -39,7 +39,7 @@ bool radio_setup(const RadioParams *p, int32_t maxTries) {
   radioTimingInit(p->sf, p->bwHz, LORA_CR_DENOM, LORA_PREAMBLE_LEN, true);
 
   int8_t power = radio_clamp_tx_power(p->txPowerDbm);
-  if (power != p->txPowerDbm) ESP_LOGW(TAG, "мощност %" PRId32 " dBm е извън границите на модула - ограничена до %" PRId32 " dBm", (int32_t)p->txPowerDbm, (int32_t)power);
+  if (power != p->txPowerDbm) ESP_LOGW(TAG, "мощност %" PRId32 " dBm е извън границите (модул/регулатор) - ограничена до %" PRId32 " dBm", (int32_t)p->txPowerDbm, (int32_t)power);
 
   ConfigLoRa_t cfg;
   cfg.frequency = (float)p->freqHz / 1.0e6f;

@@ -7,6 +7,7 @@
 #include "esp_random.h"
 #include "esp_rom_sys.h"
 #include "esp_system.h"
+#include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
 
@@ -133,6 +134,17 @@ void hal_fatal_restart(const char *what) {
   ESP_LOGE(TAG, "КРИТИЧНА ГРЕШКА при старт: %s - рестарт след 2 s", what);
   hal_delay_ms(2000);
   hal_restart();
+}
+
+bool hal_task_wdt_start(uint32_t timeout_ms) {
+  esp_task_wdt_config_t cfg = {};
+  cfg.timeout_ms = timeout_ms;
+  cfg.idle_core_mask = 0;
+  cfg.trigger_panic = true;
+  esp_err_t e = esp_task_wdt_reconfigure(&cfg);
+  if (e == ESP_ERR_INVALID_STATE) e = esp_task_wdt_init(&cfg);      // още не е инициализиран (CONFIG_ESP_TASK_WDT_INIT=n)
+  if (e != ESP_OK) { ESP_LOGE(TAG, "Task watchdog не се настрои (%s) - няма защита от зависване", esp_err_to_name(e)); return false; }
+  return true;
 }
 
 bool hal_woke_from_deep_sleep(void) {

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "board_pins.h"
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "agro_hal.h"
 
@@ -29,9 +30,19 @@ void consumers_init(ConsumerSet *cs) {
       ESP_LOGE(TAG, "консуматор %s: GPIO %" PRIu32 " не е използваем на тази платка - прескачам", cs->id[i], (uint32_t)cs->pin[i]);
       continue;
     }
-    hal_gpio_output(cs->pin[i], false);
+    hal_gpio_output(cs->pin[i], false);           // ниво LOW и режим изход ПРЕДИ да се свали заключването
+    gpio_hold_dis((gpio_num_t)cs->pin[i]);        // след дълбок сън пинът е заключен в LOW; сега е изход LOW - без импулс
     cs->usable[i] = true;
   }
+}
+
+void consumers_all_off(const ConsumerSet *cs) {
+  for (uint8_t i = 0; i < cs->count; i++) if (cs->usable[i]) hal_gpio_write(cs->pin[i], false);
+}
+
+void consumers_hold_for_deep_sleep(const ConsumerSet *cs) {
+  consumers_all_off(cs);
+  for (uint8_t i = 0; i < cs->count; i++) if (cs->usable[i]) gpio_hold_en((gpio_num_t)cs->pin[i]);
 }
 
 int32_t consumers_index(const ConsumerSet *cs, const char *c_id) {

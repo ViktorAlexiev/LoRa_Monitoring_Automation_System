@@ -115,9 +115,9 @@ void cfg_apply_line(const char *line, CfgReply *reply) {
   }
 
   int32_t txp = 0;
-  if (hasTxp && !parseSInt(txpStr, LORA_TX_POWER_MIN_DBM, LORA_TX_POWER_MAX_DBM, &txp)) {
+  if (hasTxp && !parseSInt(txpStr, LORA_TX_POWER_MIN_DBM, LORA_TX_POWER_LIMIT_DBM, &txp)) {
     char why[CFG_REASON_LEN];
-    snprintf(why, sizeof(why), "невалидна мощност txp (допустимо %" PRId32 "..%" PRId32 " dBm)", (int32_t)LORA_TX_POWER_MIN_DBM, (int32_t)LORA_TX_POWER_MAX_DBM);
+    snprintf(why, sizeof(why), "невалидна мощност txp (допустимо %" PRId32 "..%" PRId32 " dBm)", (int32_t)LORA_TX_POWER_MIN_DBM, (int32_t)LORA_TX_POWER_LIMIT_DBM);
     nack(reply, why);
     return;
   }

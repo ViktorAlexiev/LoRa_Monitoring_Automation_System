@@ -30,6 +30,13 @@ extern "C" void app_main(void) {
     return;
   }
 
+  // Ниска батерия: под BATT_CUTOFF_MV (до BATT_RESUME_MV) repeater-ът не стартира радиото, а заспива дълбоко
+  if (s_cfg.hasBattery && board_battery_is_low(board_battery_mv())) {
+    ESP_LOGW(TAG, "ниска батерия: дълбок сън за %" PRId32 " s", (int32_t)BATT_LOW_SLEEP_S);
+    power_deep_sleep_us(BATT_LOW_SLEEP_US);
+  }
+  hal_task_wdt_start(AGRO_TASK_WDT_TIMEOUT_MS);   // task watchdog (30 s); rep_rx го храни
+
   QueueHandle_t fwdQ = xQueueCreate(FWD_QUEUE_SIZE, sizeof(FwdItem));
   SemaphoreHandle_t mutex = xSemaphoreCreateMutex();
   if (fwdQ == nullptr || mutex == nullptr) hal_fatal_restart("няма памет за опашката/mutex-а");

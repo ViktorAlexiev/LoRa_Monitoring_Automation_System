@@ -8,360 +8,371 @@
 11: `crypto_common.h`: строеж и проверка на wire пакети.
 12: `esp_log.h`.
 13: `esp_timer.h`: таймер за heartbeat.
-14: `consumers.h`: `consumers_state`.
-15: `agro_hal.h`.
-16: включва `board_power.h`.
-17: `protocol.h`.
-18: `radio_timing.h`: ACK timeout-и.
-20: `TAG`.
-22..25: коментар: общ TX слот с неблокиращ достъп до канала. Един пакет наведнъж. Пакетът се строи (и получава counter) при заявката; достъпът до канала (CAD + сондиране + backoff) тече на стъпки в `radioTxTick()` и НЕ блокира приемането. Команден път (ACK/NACK, state response, restart response): политика COMMAND. Heartbeat: телеметрия, при зает канал се пропуска.
-26: `TXK_ACK` = 1: видът на пакета в TX слота: ACK/NACK на команда. `TXK` = TX kind.
-27: `TXK_STATE_RESP` = 2: отговор на заявка за състояние.
-28: `TXK_RESTART_RESP` = 3: автоматичен отговор след рестарт.
-29: `TXK_HB` = 4: heartbeat.
-31: `ACK_LIST_SIZE` = 8: най-много 8 чакащи ACK-а.
-32: `STATE_RESP_MAX_RETRIES` = 2: общо до 3 опита (1 + 2 повторения).
-33: `MAX_RX_PER_SERVICE` = 16: най-много 16 получени пакета на една обиколка.
-34: `EXEC_RX_BUF` = 64: буфер за приемане; най-големият пакет, който executor разбира, е 26 B; по-дълги се броят само по дължина.
-35: `MAX_SERVICE_PASSES` = 8: най-много 8 обиколки на цикъла за една обработка.
-37: `struct State {` цялото вътрешно състояние на радио слоя на executor в една структура ([[struct]]). Полетата имат стойности по подразбиране, зададени при дефиницията (C++11), затова `State()` е нулирано начално състояние.
-38: `const ExecConfig *cfg = nullptr;` указател към конфигурацията.
-39: `QueueHandle_t cmdQ = nullptr, ackInQ = nullptr;` двете опашки.
-40: `TaskHandle_t task = nullptr;` дръжката на радио задачата.
-41: `CeilingCounter txCounter;` брояч на nonce.
-42: `bool counterReady = false;` дали е инициализиран.
-44: `AckReq acks[ACK_LIST_SIZE];` списък на чакащите ACK заявки.
-45: `uint8_t ackCount = 0;` колко са в списъка.
-47: `bool txPending = false;` дали TX слотът е зает.
-48: `uint8_t txKind = 0;` вид на пакета в слота.
-49: `uint8_t txBuf[...];` буфер на пакета в слота: най-големият wire пакет (14 + 10 x 5 = 64 B).
-50: `uint8_t txLen = 0;` дължина.
-51: `char txTag[CONSUMER_ID_LEN + 1];` C_ID на ACK-а (за лога).
-52: `uint8_t txStatus = 0;` статус на ACK-а (за лога).
-53: `uint32_t txCreatedAt = 0;` кога е заявен пакетът (за ACK timeout).
-54: `ChannelAccess txAccess;` състоянието на автомата за достъп до канала ([[fsm]]).
-55: `bool cadRan = false;` дали е бил правен CAD в този ход.
-57: `bool restartPending = false;` чака ли се ACK за restart отговора.
-58: `uint32_t restartSentAt = 0;` кога е изпратен последният опит.
-59: `uint8_t restartRetries = 0;` колко повторения са направени.
-61: `bool hbPending = false;` има ли насрочен heartbeat.
-62: `uint32_t hbSendAt = 0;` кога най-рано да се излъчи.
-63: затваря структурата.
-65: `static State s;` единствената глобална инстанция на състоянието (`s`); `static` -> видима само тук.
-66: `static std::atomic<bool> s_hbDue(false);` флаг "heartbeat е дължим", вдига се от таймера, чете се от радио задачата ([[atomic]]).
-67: `s_hbTimer`: таймерът за heartbeat.
-69: `reached(now, t)`: сравнение със знак, вярно и при пренасяне ([[wraparound]]).
-71: `exec_radio_reset(cfg, cmdQ, ackInQ)`.
-72: `s = State();` нулира цялото състояние (присвоява ново "по подразбиране").
-73: `s.cfg = cfg;`
-74: `s.cmdQ = cmdQ;`
-75: `s.ackInQ = ackInQ;`
-76: `s_hbDue.store(false);`
-77: `s_hbTimer = nullptr;`
-78: затваря.
-80: `exec_radio_set_task(TaskHandle_t t)`: еднореден setter.
-81: `exec_radio_tx_busy()`: връща `s.txPending`.
-82: `exec_radio_restart_pending()`.
-83: `exec_radio_ack_pending()`: `s.ackCount`.
-85: `static bool nextCounter(uint32_t *c)`: взема следващата стойност на брояча.
-86: ако броячът не е инициализиран: `begin("ceil")` ([[ceiling]]).
-87: `return s.txCounter.next(c);` `false` при провал на NVS.
-88: затваря.
-90: `static bool txRequest(kind, buf, len, policy)`: заявява пакет в TX слота.
-91: слотът е зает -> `false` (един пакет наведнъж).
-92: копира пакета в слота.
-93: `txLen = len`.
-94: `txKind = kind`.
-95: `txCreatedAt = now`.
-96: `channelAccessStart(&s.txAccess, policy);` стартира автомата за достъп до канала.
-97: `txPending = true`.
-98: `return true;`
-99: затваря.
-101..102: коментар: CAD оставя радиото в standby; помни се дали на този ход е изпълнен, за да върнем радиото на слушане само тогава.
-103: `static bool cadProbe()`: функцията за CAD, подадена на автомата.
-105: `s.cadRan = true;`
-106: `return channelActive();`
-107: затваря.
-109: `static bool radioTxTick()`: една стъпка на TX слота; връща `true`, ако нещо се е променило.
-110: няма чакащ пакет -> `false`.
-112: `s.cadRan = false;`
-113: `r = channelAccessPoll(&s.txAccess, hal_millis(), cadProbe, channelRandom);` една стъпка на автомата.
-114: `CH_WAIT` ...
-115: ... ако е правен CAD, връща радиото на слушане ...
-116: ... `return false` (нищо не се е променило).
-117: затваря.
-119: `CH_CLEAR`: каналът е свободен ...
-120: ... `radio_transmit(...)` излъчва ...
-121: ... `radio_listen()` пак слуша ...
-122: ... ако е неуспешно ...
-123: ... лог ...
-124: `} else {` ...
-125: ... `switch (s.txKind)` според вида на пакета ...
-126: ... `TXK_ACK`: лог ACK или NACK с C_ID ...
-127: ... `TXK_STATE_RESP`: лог ...
-128: ... `TXK_RESTART_RESP`: лог ...
-129: ... `TXK_HB`: лог с ID ...
-130: ... затваря `switch`.
-131: затваря `else`.
-132: `s.txPending = false;` слотът е свободен.
-133: `return true;` има промяна.
-134: затваря.
-136: коментар: `CH_GIVEUP`: срокът за сондиране изтече, каналът остана зает.
-137: `radio_listen();`
-138: ако е ACK и още не е изтекъл ACK timeout за команда (gateway още чака) ...
-139: ... коментар: ACK още има смисъл ...
-140: ... лог ...
-141: ... започва нов цикъл на достъп (`channelAccessStart`) ...
-142: ... `return false`.
-143: затваря.
-144: лог: каналът остана зает, отказва се.
-145: `s.txPending = false;` освобождава слота.
-146: `return true;`
-147: затваря.
-149: коментар: строи и заявява криптиран state response.
-150: `static bool sendStateResponseWire(uint8_t typeId)`: `typeId` е нормален или RESTART вариант.
-151: ако слотът е зает ...
-152: ... лог ...
-153: ... `return false`.
-154: затваря.
-155: `cfg = s.cfg;`
-156: `plaintext[...]`: до 10 консуматора x 5 B.
-157: цикъл по консуматорите.
-158: `off` = отместването на i-тия запис (i x 5).
-159: копира C_ID (4 байта).
-160: байтът за състояние: 1 ако е включен (чете се от реалния пин), иначе 0.
-161: затваря цикъла.
-162: `ptLen = count x 5`.
-164: `ctr`.
-165: `nextCounter(&ctr)` неуспешно -> `false`.
-166: `wire[...]` буфер.
-167: строи wire пакета.
-168: 0 -> грешка.
-170: `kind` според типа.
-171: `txRequest(kind, wire, wireLen, CH_POLICY_COMMAND)`: заявява със политика COMMAND.
-173: лог (с " RESTART" при restart вариант).
-174: (продължение).
-175: цикъл по консуматорите ...
-176: ... лог на всеки консуматор ON/OFF.
-177: затваря цикъла.
-178: `return true;`
-179: затваря.
-181: коментар: restart state response е автомат с ACK и повторения.
-182: коментар: ACK timeout-ът се изчислява от SF/BW, не е константа.
-183: `exec_radio_request_restart_response()`: стартира процеса.
-184: `restartPending = true`.
-185: `restartRetries = 0`.
-186: `restartSentAt = now`.
-187: праща първия опит.
-188: затваря.
-190: `static bool restartRespManager()`: проверява дали е време за повторение; връща `true` при промяна.
-191: ако не чакаме -> `false`.
-192: ако не е изтекъл ACK timeout -> `false`.
-194: ако още има повторения (`< 2`) ...
-195: ... коментар: ако слотът е зает, опитът не се брои ...
-196: ... ако `sendStateResponseWire` успее ...
-197: ... `restartRetries++` ...
-198: ... `restartSentAt = now` ...
-199: ... лог ...
-200: ... `return true` ...
-201: затваря.
-202: `return false;` слотът е зает: пак след края на предаването.
+14: `esp_task_wdt.h`: храненето на task watchdog-а.
+15: `power.h`: `power_deep_sleep_us`.
+16: `consumers.h`: `consumers_state`.
+17: `agro_hal.h`.
+18: включва `board_power.h`.
+19: `protocol.h`.
+20: `radio_timing.h`: ACK timeout-и.
+22: `TAG`.
+24..27: коментар: общ TX слот с неблокиращ достъп до канала. Един пакет наведнъж. Пакетът се строи (и получава counter) при заявката; достъпът до канала (CAD + сондиране + backoff) тече на стъпки в `radioTxTick()` и НЕ блокира приемането. Команден път (ACK/NACK, state response, restart response): политика COMMAND. Heartbeat: телеметрия, при зает канал се пропуска.
+28: `TXK_ACK` = 1: видът на пакета в TX слота: ACK/NACK на команда. `TXK` = TX kind.
+29: `TXK_STATE_RESP` = 2: отговор на заявка за състояние.
+30: `TXK_RESTART_RESP` = 3: автоматичен отговор след рестарт.
+31: `TXK_HB` = 4: heartbeat.
+33: `ACK_LIST_SIZE` = 8: най-много 8 чакащи ACK-а.
+34: `STATE_RESP_MAX_RETRIES` = 2: общо до 3 опита (1 + 2 повторения).
+35: `MAX_RX_PER_SERVICE` = 16: най-много 16 получени пакета на една обиколка.
+36: `EXEC_RX_BUF` = 64: буфер за приемане; най-големият пакет, който executor разбира, е 26 B; по-дълги се броят само по дължина.
+37: `MAX_SERVICE_PASSES` = 8: най-много 8 обиколки на цикъла за една обработка.
+39: `struct State {` цялото вътрешно състояние на радио слоя на executor в една структура ([[struct]]). Полетата имат стойности по подразбиране, зададени при дефиницията (C++11), затова `State()` е нулирано начално състояние.
+40: `const ExecConfig *cfg = nullptr;` указател към конфигурацията.
+41: `QueueHandle_t cmdQ = nullptr, ackInQ = nullptr;` двете опашки.
+42: `TaskHandle_t task = nullptr;` дръжката на радио задачата.
+43: `CeilingCounter txCounter;` брояч на nonce.
+44: `bool counterReady = false;` дали е инициализиран.
+46: `AckReq acks[ACK_LIST_SIZE];` списък на чакащите ACK заявки.
+47: `uint8_t ackCount = 0;` колко са в списъка.
+49: `bool txPending = false;` дали TX слотът е зает.
+50: `uint8_t txKind = 0;` вид на пакета в слота.
+51: `uint8_t txBuf[...];` буфер на пакета в слота: най-големият wire пакет (14 + 10 x 5 = 64 B).
+52: `uint8_t txLen = 0;` дължина.
+53: `char txTag[CONSUMER_ID_LEN + 1];` C_ID на ACK-а (за лога).
+54: `uint8_t txStatus = 0;` статус на ACK-а (за лога).
+55: `uint32_t txCreatedAt = 0;` кога е заявен пакетът (за ACK timeout).
+56: `ChannelAccess txAccess;` състоянието на автомата за достъп до канала ([[fsm]]).
+57: `bool cadRan = false;` дали е бил правен CAD в този ход.
+59: `bool restartPending = false;` чака ли се ACK за restart отговора.
+60: `uint32_t restartSentAt = 0;` кога е изпратен последният опит.
+61: `uint8_t restartRetries = 0;` колко повторения са направени.
+63: `bool hbPending = false;` има ли насрочен heartbeat.
+64: `uint32_t hbSendAt = 0;` кога най-рано да се излъчи.
+65: затваря структурата.
+67: `static State s;` единствената глобална инстанция на състоянието (`s`); `static` -> видима само тук.
+68: `static std::atomic<bool> s_hbDue(false);` флаг "heartbeat е дължим", вдига се от таймера, чете се от радио задачата ([[atomic]]).
+69: `s_hbTimer`: таймерът за heartbeat.
+71: `reached(now, t)`: сравнение със знак, вярно и при пренасяне ([[wraparound]]).
+73: `exec_radio_reset(cfg, cmdQ, ackInQ)`.
+74: `s = State();` нулира цялото състояние (присвоява ново "по подразбиране").
+75: `s.cfg = cfg;`
+76: `s.cmdQ = cmdQ;`
+77: `s.ackInQ = ackInQ;`
+78: `s_hbDue.store(false);`
+79: `s_hbTimer = nullptr;`
+80: затваря.
+82: `exec_radio_set_task(TaskHandle_t t)`: еднореден setter.
+83: `exec_radio_tx_busy()`: връща `s.txPending`.
+84: `exec_radio_restart_pending()`.
+85: `exec_radio_ack_pending()`: `s.ackCount`.
+87: `static bool nextCounter(uint32_t *c)`: взема следващата стойност на брояча.
+88: ако броячът не е инициализиран: `begin("ceil")` ([[ceiling]]).
+89: `return s.txCounter.next(c);` `false` при провал на NVS.
+90: затваря.
+92: `static bool txRequest(kind, buf, len, policy)`: заявява пакет в TX слота.
+93: слотът е зает -> `false` (един пакет наведнъж).
+94: копира пакета в слота.
+95: `txLen = len`.
+96: `txKind = kind`.
+97: `txCreatedAt = now`.
+98: `channelAccessStart(&s.txAccess, policy);` стартира автомата за достъп до канала.
+99: `txPending = true`.
+100: `return true;`
+101: затваря.
+103..104: коментар: CAD оставя радиото в standby; помни се дали на този ход е изпълнен, за да върнем радиото на слушане само тогава.
+105: `static bool cadProbe()`: функцията за CAD, подадена на автомата.
+107: `s.cadRan = true;`
+108: `return channelActive();`
+109: затваря.
+111: `static bool radioTxTick()`: една стъпка на TX слота; връща `true`, ако нещо се е променило.
+112: няма чакащ пакет -> `false`.
+114: `s.cadRan = false;`
+115: `r = channelAccessPoll(&s.txAccess, hal_millis(), cadProbe, channelRandom);` една стъпка на автомата.
+116: `CH_WAIT` ...
+117: ... ако е правен CAD, връща радиото на слушане ...
+118: ... `return false` (нищо не се е променило).
+119: затваря.
+121: `CH_CLEAR`: каналът е свободен ...
+122: ... `radio_transmit(...)` излъчва ...
+123: ... `radio_listen()` пак слуша ...
+124: ... ако е неуспешно ...
+125: ... лог ...
+126: `} else {` ...
+127: ... `switch (s.txKind)` според вида на пакета ...
+128: ... `TXK_ACK`: лог ACK или NACK с C_ID ...
+129: ... `TXK_STATE_RESP`: лог ...
+130: ... `TXK_RESTART_RESP`: лог ...
+131: ... `TXK_HB`: лог с ID ...
+132: ... затваря `switch`.
+133: затваря `else`.
+134: `s.txPending = false;` слотът е свободен.
+135: `return true;` има промяна.
+136: затваря.
+138: коментар: `CH_GIVEUP`: срокът за сондиране изтече, каналът остана зает.
+139: `radio_listen();`
+140: ако е ACK и още не е изтекъл ACK timeout за команда (gateway още чака) ...
+141: ... коментар: ACK още има смисъл ...
+142: ... лог ...
+143: ... започва нов цикъл на достъп (`channelAccessStart`) ...
+144: ... `return false`.
+145: затваря.
+146: лог: каналът остана зает, отказва се.
+147: `s.txPending = false;` освобождава слота.
+148: `return true;`
+149: затваря.
+151: коментар: строи и заявява криптиран state response.
+152: `static bool sendStateResponseWire(uint8_t typeId)`: `typeId` е нормален или RESTART вариант.
+153: ако слотът е зает ...
+154: ... лог ...
+155: ... `return false`.
+156: затваря.
+157: `cfg = s.cfg;`
+158: `plaintext[...]`: до 10 консуматора x 5 B.
+159: цикъл по консуматорите.
+160: `off` = отместването на i-тия запис (i x 5).
+161: копира C_ID (4 байта).
+162: байтът за състояние: 1 ако е включен (чете се от реалния пин), иначе 0.
+163: затваря цикъла.
+164: `ptLen = count x 5`.
+166: `ctr`.
+167: `nextCounter(&ctr)` неуспешно -> `false`.
+168: `wire[...]` буфер.
+169: строи wire пакета.
+170: 0 -> грешка.
+172: `kind` според типа.
+173: `txRequest(kind, wire, wireLen, CH_POLICY_COMMAND)`: заявява със политика COMMAND.
+175: лог (с " RESTART" при restart вариант).
+176: (продължение).
+177: цикъл по консуматорите ...
+178: ... лог на всеки консуматор ON/OFF.
+179: затваря цикъла.
+180: `return true;`
+181: затваря.
+183: коментар: restart state response е автомат с ACK и повторения.
+184: коментар: ACK timeout-ът се изчислява от SF/BW, не е константа.
+185: `exec_radio_request_restart_response()`: стартира процеса.
+186: `restartPending = true`.
+187: `restartRetries = 0`.
+188: `restartSentAt = now`.
+189: праща първия опит.
+190: затваря.
+192: `static bool restartRespManager()`: проверява дали е време за повторение; връща `true` при промяна.
+193: ако не чакаме -> `false`.
+194: ако не е изтекъл ACK timeout -> `false`.
+196: ако още има повторения (`< 2`) ...
+197: ... коментар: ако слотът е зает, опитът не се брои ...
+198: ... ако `sendStateResponseWire` успее ...
+199: ... `restartRetries++` ...
+200: ... `restartSentAt = now` ...
+201: ... лог ...
+202: ... `return true` ...
 203: затваря.
-204: лог: няма ACK след 3 опита.
-205: `restartPending = false;` отказва се.
-206: `return true;`
-207: затваря.
-209: коментар: heartbeat (криптиран, без данни: само идентичност, брояч и MAC).
-210: `exec_radio_hb_due()`: вика се от таймера.
-211: `s_hbDue.store(true);` вдига флага.
-212: `xTaskNotifyGive(s.task)` събужда радио задачата ([[notify]]).
-213: затваря.
-215: `static bool heartbeatTick()`.
-216: `progress = false`.
-217: `s_hbDue.exchange(false) && !s.hbPending`: ако е дължим и още няма насрочен ...
-218: ... `hbPending = true` ...
-219: ... `hbSendAt = now + random(1000)` (jitter) ...
-220: ... `progress = true`.
-221: затваря.
-222: ако има насрочен, слотът е свободен и е дошло времето ...
-223: ... `ctr` ...
-224: ... ако брояч не се записа, пропуска този HB ...
-225: коментар: с батерия heartbeat-ът носи mV (int16, little-endian; `BATTERY_RAW_NODATA` = няма измерване) и е 16 B; без батерия е 14 B както досега.
-226: `uint8_t wire[CRYPTO_OVERHEAD + HB_BAT_PT_LEN];` буфер за wire пакета: 14 B без батерия или 16 B с батерия (максимумът).
-227: `pt` е буферът за двата байта на батерията.
-228: `ptLen` е 0 (без батерия) докато не се реши друго.
-229: ако платката има батерия ...
-230: мери батерията (блокира 20-30 ms; радиото е в покой).
-231: младшият байт на mV в `pt[0]` (little-endian).
-232: старшият байт на mV в `pt[1]`.
-233: `ptLen = 2`: heartbeat-ът ще носи plaintext и ще е 16 B по въздуха.
-235: строи heartbeat-а; без батерия plaintext е `NULL`, дължина 0 (старият 14-байтов пакет).
-236: продължение: указателят към plaintext и дължината му.
-237: ... коментар: при зает канал се пропуска ...
-238: ... заявява със SKIP политика ...
-239: ... `hbPending = false` ...
-240: ... `progress = true`.
-241: затваря.
-242: затваря.
-243: `return progress;`
-244: затваря.
-246: коментар: ACK/NACK на командите.
-247: `static void drainAckIn()`: изпразва опашката `ackInQ` в локалния списък.
-248: `AckReq req;`
-249: `while (s.ackCount < ACK_LIST_SIZE && xQueueReceive(s.ackInQ, &req, 0) == pdTRUE) s.acks[s.ackCount++] = req;` докато има място и опашката дава елемент (чака 0 тика: без блокиране), добавя в списъка.
-250: затваря.
-252: `static void ackRemoveAt(uint8_t index)`: премахва елемент.
-253: измества следващите елементи с една позиция наляво.
-254: `ackCount--`.
+204: `return false;` слотът е зает: пак след края на предаването.
+205: затваря.
+206: лог: няма ACK след 3 опита.
+207: `restartPending = false;` отказва се.
+208: `return true;`
+209: затваря.
+212: `exec_low_battery_shutdown`: ниска батерия.
+213: записва предупреждение с прага и времето на съня.
+214: изключва консуматорите и заключва пиновете им в LOW, за да не се върнат в състояние по подразбиране в дълбокия сън.
+215: изключва ключа на интерфейсите.
+216: заспива за 10 минути; `power_deep_sleep_us` заключва и двата ключа (интерфейсите и делителя). При събуждане `app_main` пак мери.
+219: коментар: heartbeat (криптиран, без данни: само идентичност, брояч и MAC).
+220: `exec_radio_hb_due()`: вика се от таймера.
+221: `s_hbDue.store(true);` вдига флага.
+222: `xTaskNotifyGive(s.task)` събужда радио задачата ([[notify]]).
+223: затваря.
+225: `static bool heartbeatTick()`.
+226: `progress = false`.
+227: `s_hbDue.exchange(false) && !s.hbPending`: ако е дължим и още няма насрочен ...
+228: ... `hbPending = true` ...
+229: ... `hbSendAt = now + random(1000)` (jitter) ...
+230: ... `progress = true`.
+231: затваря.
+232: ако има насрочен, слотът е свободен и е дошло времето ...
+233: ... `ctr` ...
+234: ... ако брояч не се записа, пропуска този HB ...
+235: коментар: с батерия heartbeat-ът носи mV (int16, little-endian; `BATTERY_RAW_NODATA` = няма измерване) и е 16 B; без батерия е 14 B както досега.
+236: `uint8_t wire[CRYPTO_OVERHEAD + HB_BAT_PT_LEN];` буфер за wire пакета: 14 B без батерия или 16 B с батерия (максимумът).
+237: `pt` е буферът за двата байта на батерията.
+238: `ptLen` е 0 (без батерия) докато не се реши друго.
+239: ако платката има батерия ...
+240: мери батерията (блокира 20-30 ms; радиото е в покой).
+241: при всеки heartbeat на устройство с батерия: ако напрежението е под прага - изключване и дълбок сън (не връща).
+242: младшият байт на mV в `pt[0]` (little-endian).
+243: старшият байт на mV в `pt[1]`.
+244: `ptLen = 2`: heartbeat-ът ще носи plaintext и ще е 16 B по въздуха.
+246: строи heartbeat-а; без батерия plaintext е `NULL`, дължина 0 (старият 14-байтов пакет).
+247: продължение: указателят към plaintext и дължината му.
+248: ... коментар: при зает канал се пропуска ...
+249: ... заявява със SKIP политика ...
+250: ... `hbPending = false` ...
+251: ... `progress = true`.
+252: затваря.
+253: затваря.
+254: `return progress;`
 255: затваря.
-257: `static bool ackManager()`: превръща чакащите ACK заявки в пакети.
-258: слотът е зает -> `false` (следващият ACK изчаква).
-259: `now`.
-260: цикъл по списъка.
-261: ако още не е времето (`sendAt`), `continue`.
-263: `plaintext[6]`.
-264: копира C_ID.
-265: `plaintext[4] = com`.
-266: `plaintext[5] = status`.
-268: `ctr`.
-269: ако брояч неуспешен: премахва заявката и `return true`: не излъчва с непотвърден nonce.
-270: `wire[]`.
-271: строи пакета с тип `CRYPTO_TYPE_EXEC_ACK` ...
-272: ... (продължение).
-273: копира C_ID в `txTag` (за лога).
-274: терминира.
-275: запомня статуса.
-276: `if (n && txRequest(TXK_ACK, wire, n, CH_POLICY_COMMAND)) {` заявява ...
-277: ... `ackRemoveAt(i)`: от тук пакетът е собственост на TX слота ...
-278: ... `return true`.
-279: затваря.
-280: `return false;` слотът не го прие.
-281: затваря цикъла.
-282: `return false;`
-283: затваря.
-285: коментар: раздел приемане.
-286: коментар: `buf` е прочетеното (до 64 B), `packetSize` е истинската дължина.
-287: `static void rxHandle(const uint8_t *buf, int32_t packetSize)`: разпознава пакета по ДЪЛЖИНА.
-288: `cfg = s.cfg`.
-290: `if (packetSize == CMD_WIRE_LEN) {` 26 B = команда ...
-291: коментар: проверка на target ПРЕДИ decrypt: евтино, отхвърля пакети за други executor-и.
-292: `memcmp(buf, cfg->id, 6) != 0`: първите 6 байта (M_ID на целта) не съвпадат с моя ID ...
-293: ... лог ...
-294: ... `return`.
-295: затваря.
-296: `senderId[6]`.
-297: `plaintext[6]`.
-298: `ptLen`.
-299: `cryptoParseWirePacket(buf + 6, 14 + 6, key, CRYPTO_TYPE_GW_CMD, senderId, plaintext, &ptLen)`: проверява MAC и разшифрова (прескача M_ID).
-300: (продължение).
-301: ако MAC е невалиден ...
-302: ... `return` (отхвърля) ...
-303: затваря.
-304: `CommandPacket p;`
-305: копира C_ID.
-306: `p.com`.
-307: `p.status`.
-308: `c_id[5]` за лога.
-309: копира.
-310: лог.
-311: слага командата в `cmdQ`; ако е пълна, лог на грешка.
-312: `} else if (packetSize == STATE_REQ_WIRE_LEN) {` 20 B = state заявка или state-resp ACK ...
-313: коментар: проверка на target преди decrypt.
-314: ако не е за мен ...
-315: ... лог ...
-316: ... `return`.
-317: затваря.
-318: `senderId`.
-319: `plaintext[1]`: минимален буфер (празен plaintext).
-320: `ptLen`.
-321: опитва като `STATE_REQ`: ако е валиден ...
-322: ... лог ...
-323: ... праща състоянията (`sendStateResponseWire`).
-324: `} else if` опитва като `STATE_RESP_ACK` ...
-325: ... (продължение) ...
-326: ... ако чакаме ACK ...
-327: ... лог ...
-328: ... `restartPending = false`: спира повторенията.
-329: затваря.
-330: `} else {` нито едното ...
-331: ... лог: невалиден MAC.
-332: затваря.
-333: `} else {` непозната дължина ...
-334: ... лог.
-335: затваря.
-336: затваря функцията.
-338: `static void rxDrain()`: чете всички чакащи пакети.
-339: `buf[64]`.
-340: цикъл най-много 16 пъти.
-341: `n = radio_read_packet(buf, sizeof(buf));`
-342: няма -> `break`.
-343: лош CRC -> лог на ниво debug и `continue`.
-344: `rxHandle(buf, n);`
-345: затваря цикъла.
-346: коментар: DIO1 пада, когато флаговете са изчистени.
-347: `hal_irq_rearm(LORA_DIO1);` включва пак прекъсването.
-348: затваря.
-350: коментар: една обиколка и срок до следващата.
-351: `static uint32_t nextWaitMs()`: колко да спи задачата.
-352: `now`.
-353: `best = EXEC_WAIT_FOREVER`.
-354: `auto consider = [&](uint32_t at) {` ламбда функция (анонимна функция): `[&]` улавя външните променливи по референция ([[lambda]]).
-355: `d` = ms до момента `at` (0 ако е настъпил).
-356: ако е по-малко от `best`, го запомня.
-357: затваря ламбдата (`};`).
-358: ако TX слотът е зает ...
-359: ... следващата проверка на канала.
-360: `} else {` иначе ...
-361: ... срокът на всеки чакащ ACK ...
-362: ... срокът на heartbeat ...
-363: ... срокът на повторение на restart отговора.
-364: затваря.
-365: `return best;`
-366: затваря.
-368: `uint32_t exec_radio_service(void)`: една обиколка на цялата логика.
-369: `progress = false`.
-370: цикъл до 8 обиколки.
-371: `rxDrain();` приема.
-372: `drainAckIn();` вдига ACK заявките.
-373: `bool p = false;`
-374: `p |= restartRespManager();` (`|=` е побитово ИЛИ: `p` става `true`, ако някоя част е имала промяна).
-375: `p |= ackManager();`
-376: `p |= heartbeatTick();`
-377: `p |= radioTxTick();`
-378: `progress = p;`
-379: ако няма промяна: `break` (спокойно състояние).
-380: затваря.
-381: `w = nextWaitMs();`
-382: ако `w == 0` и няма напредък (срок, който не може да се изпълни сега, напр. чака слота), `w = 1`, за да не се върти в празно.
-383: `return w;`
-384: затваря.
-386: коментар: задачата.
-387: коментар: еднократен таймер, който сам се пререгистрира; първият срок е на случайна фаза.
-388: `static void hbTimerCb(void *)`: колбек на `esp_timer`.
-389: `exec_radio_hb_due();`
-390: подновява таймера за 304 s.
+257: коментар: ACK/NACK на командите.
+258: `static void drainAckIn()`: изпразва опашката `ackInQ` в локалния списък.
+259: `AckReq req;`
+260: `while (s.ackCount < ACK_LIST_SIZE && xQueueReceive(s.ackInQ, &req, 0) == pdTRUE) s.acks[s.ackCount++] = req;` докато има място и опашката дава елемент (чака 0 тика: без блокиране), добавя в списъка.
+261: затваря.
+263: `static void ackRemoveAt(uint8_t index)`: премахва елемент.
+264: измества следващите елементи с една позиция наляво.
+265: `ackCount--`.
+266: затваря.
+268: `static bool ackManager()`: превръща чакащите ACK заявки в пакети.
+269: слотът е зает -> `false` (следващият ACK изчаква).
+270: `now`.
+271: цикъл по списъка.
+272: ако още не е времето (`sendAt`), `continue`.
+274: `plaintext[6]`.
+275: копира C_ID.
+276: `plaintext[4] = com`.
+277: `plaintext[5] = status`.
+279: `ctr`.
+280: ако брояч неуспешен: премахва заявката и `return true`: не излъчва с непотвърден nonce.
+281: `wire[]`.
+282: строи пакета с тип `CRYPTO_TYPE_EXEC_ACK` ...
+283: ... (продължение).
+284: копира C_ID в `txTag` (за лога).
+285: терминира.
+286: запомня статуса.
+287: `if (n && txRequest(TXK_ACK, wire, n, CH_POLICY_COMMAND)) {` заявява ...
+288: ... `ackRemoveAt(i)`: от тук пакетът е собственост на TX слота ...
+289: ... `return true`.
+290: затваря.
+291: `return false;` слотът не го прие.
+292: затваря цикъла.
+293: `return false;`
+294: затваря.
+296: коментар: раздел приемане.
+297: коментар: `buf` е прочетеното (до 64 B), `packetSize` е истинската дължина.
+298: `static void rxHandle(const uint8_t *buf, int32_t packetSize)`: разпознава пакета по ДЪЛЖИНА.
+299: `cfg = s.cfg`.
+301: `if (packetSize == CMD_WIRE_LEN) {` 26 B = команда ...
+302: коментар: проверка на target ПРЕДИ decrypt: евтино, отхвърля пакети за други executor-и.
+303: `memcmp(buf, cfg->id, 6) != 0`: първите 6 байта (M_ID на целта) не съвпадат с моя ID ...
+304: ... лог ...
+305: ... `return`.
+306: затваря.
+307: `senderId[6]`.
+308: `plaintext[6]`.
+309: `ptLen`.
+310: `cryptoParseWirePacket(buf + 6, 14 + 6, key, CRYPTO_TYPE_GW_CMD, senderId, plaintext, &ptLen)`: проверява MAC и разшифрова (прескача M_ID).
+311: (продължение).
+312: ако MAC е невалиден ...
+313: ... `return` (отхвърля) ...
+314: затваря.
+315: `CommandPacket p;`
+316: копира C_ID.
+317: `p.com`.
+318: `p.status`.
+319: `c_id[5]` за лога.
+320: копира.
+321: лог.
+322: слага командата в `cmdQ`; ако е пълна, лог на грешка.
+323: `} else if (packetSize == STATE_REQ_WIRE_LEN) {` 20 B = state заявка или state-resp ACK ...
+324: коментар: проверка на target преди decrypt.
+325: ако не е за мен ...
+326: ... лог ...
+327: ... `return`.
+328: затваря.
+329: `senderId`.
+330: `plaintext[1]`: минимален буфер (празен plaintext).
+331: `ptLen`.
+332: опитва като `STATE_REQ`: ако е валиден ...
+333: ... лог ...
+334: ... праща състоянията (`sendStateResponseWire`).
+335: `} else if` опитва като `STATE_RESP_ACK` ...
+336: ... (продължение) ...
+337: ... ако чакаме ACK ...
+338: ... лог ...
+339: ... `restartPending = false`: спира повторенията.
+340: затваря.
+341: `} else {` нито едното ...
+342: ... лог: невалиден MAC.
+343: затваря.
+344: `} else {` непозната дължина ...
+345: ... лог.
+346: затваря.
+347: затваря функцията.
+349: `static void rxDrain()`: чете всички чакащи пакети.
+350: `buf[64]`.
+351: цикъл най-много 16 пъти.
+352: `n = radio_read_packet(buf, sizeof(buf));`
+353: няма -> `break`.
+354: лош CRC -> лог на ниво debug и `continue`.
+355: `rxHandle(buf, n);`
+356: затваря цикъла.
+357: коментар: DIO1 пада, когато флаговете са изчистени.
+358: `hal_irq_rearm(LORA_DIO1);` включва пак прекъсването.
+359: затваря.
+361: коментар: една обиколка и срок до следващата.
+362: `static uint32_t nextWaitMs()`: колко да спи задачата.
+363: `now`.
+364: `best = EXEC_WAIT_FOREVER`.
+365: `auto consider = [&](uint32_t at) {` ламбда функция (анонимна функция): `[&]` улавя външните променливи по референция ([[lambda]]).
+366: `d` = ms до момента `at` (0 ако е настъпил).
+367: ако е по-малко от `best`, го запомня.
+368: затваря ламбдата (`};`).
+369: ако TX слотът е зает ...
+370: ... следващата проверка на канала.
+371: `} else {` иначе ...
+372: ... срокът на всеки чакащ ACK ...
+373: ... срокът на heartbeat ...
+374: ... срокът на повторение на restart отговора.
+375: затваря.
+376: `return best;`
+377: затваря.
+379: `uint32_t exec_radio_service(void)`: една обиколка на цялата логика.
+380: `progress = false`.
+381: цикъл до 8 обиколки.
+382: `rxDrain();` приема.
+383: `drainAckIn();` вдига ACK заявките.
+384: `bool p = false;`
+385: `p |= restartRespManager();` (`|=` е побитово ИЛИ: `p` става `true`, ако някоя част е имала промяна).
+386: `p |= ackManager();`
+387: `p |= heartbeatTick();`
+388: `p |= radioTxTick();`
+389: `progress = p;`
+390: ако няма промяна: `break` (спокойно състояние).
 391: затваря.
-393: `void exec_radio_task(void *)`: тялото на радио задачата.
-394: `s.task = xTaskGetCurrentTaskHandle();` запомня дръжката си.
-396: `RadioParams p;`
-397: `freqHz`.
-398: `sf`.
-399: `bwHz`.
-400: `txPowerDbm`.
-401: `radio_setup(&p, 0);` докато успее (постоянно захранено устройство).
-402: `radio_listen();` започва прием.
-403: `hal_irq_attach(LORA_DIO1, s.task);` закача прекъсването.
-405: структура на таймера.
-406: `callback`.
-407: `name = "exec_hb"`.
-408: създава таймера ...
-409: ... стартира го на случайно време 1..304 s.
-410: затваря.
-412..414: коментар: специален state response веднага след boot: маркира началото на живота на този firmware инстанс (консуматорите бяха принудително изключени). Gateway трябва да го потвърди с ACK; при 3 неуспешни опита executor се отказва мълчаливо.
-415: `exec_radio_request_restart_response();`
-417: `for (;;) {` главен цикъл.
-419: `w = exec_radio_service();` обработва и връща колко да чака.
-420: лог на нивото debug.
-421: `ulTaskNotifyTake(pdTRUE, w == EXEC_WAIT_FOREVER ? portMAX_DELAY : pdMS_TO_TICKS(w));` блокира `w` ms (или безкрайно); събужда я още DIO1, нова ACK заявка (`xTaskNotifyGive`) или таймерът ([[notify]]).
-422: затваря цикъла.
-423: затваря.
+392: `w = nextWaitMs();`
+393: ако `w == 0` и няма напредък (срок, който не може да се изпълни сега, напр. чака слота), `w = 1`, за да не се върти в празно.
+394: `return w;`
+395: затваря.
+397: коментар: задачата.
+398: коментар: еднократен таймер, който сам се пререгистрира; първият срок е на случайна фаза.
+399: `static void hbTimerCb(void *)`: колбек на `esp_timer`.
+400: `exec_radio_hb_due();`
+401: подновява таймера за 304 s.
+402: затваря.
+404: `void exec_radio_task(void *)`: тялото на радио задачата.
+405: `s.task = xTaskGetCurrentTaskHandle();` запомня дръжката си.
+407: от тук задачата трябва да храни task watchdog-а; мъртъв радио чип води до рестарт след 30 s.
+408: `RadioParams p;`
+409: `freqHz`.
+410: `sf`.
+411: `bwHz`.
+412: `txPowerDbm`.
+413: `radio_setup(&p, 0);` докато успее (постоянно захранено устройство).
+414: `radio_listen();` започва прием.
+415: `hal_irq_attach(LORA_DIO1, s.task);` закача прекъсването.
+417: структура на таймера.
+418: `callback`.
+419: `name = "exec_hb"`.
+420: създава таймера ...
+421: ... стартира го на случайно време 1..304 s.
+422: затваря.
+424..426: коментар: специален state response веднага след boot: маркира началото на живота на този firmware инстанс (консуматорите бяха принудително изключени). Gateway трябва да го потвърди с ACK; при 3 неуспешни опита executor се отказва мълчаливо.
+427: `exec_radio_request_restart_response();`
+429: `for (;;) {` главен цикъл.
+431: `w = exec_radio_service();` обработва и връща колко да чака.
+432: лог на нивото debug.
+433: ограничава чакането до 5 s (`AGRO_TASK_WAKE_MAX_MS`), за да се храни task watchdog-ът; `EXEC_WAIT_FOREVER` (най-голямо число) също се свежда до 5 s.
+434: чака известие (DIO1, заявка, таймер на heartbeat) най-много толкова.
+435: `esp_task_wdt_reset()`: храни task watchdog-а ("жив съм").
+436: затваря цикъла.
+437: затваря.

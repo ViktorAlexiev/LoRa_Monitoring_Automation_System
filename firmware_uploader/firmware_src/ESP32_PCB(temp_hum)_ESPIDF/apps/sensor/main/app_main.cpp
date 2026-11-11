@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include "agro_hal.h"
+#include "protocol.h"
 #include "board_power.h"
 #include "power.h"
 #include "sensor_config.h"
@@ -34,6 +35,23 @@ extern "C" void app_main(void) {
            (uint32_t)cfg.sf, (uint32_t)cfg.bwHz);
 
   board_power_init();                     // интерфейсите и делителят са ИЗКЛЮЧЕНИ (и след дълбок сън: пиновете се освобождават)
+  // Батерията се мери ПЪРВО (радиото и сензорите са изключени = без товар). Под BATT_CUTOFF_MV (хистерезис до BATT_RESUME_MV)
+  // сензорът не мери и не предава: при ПЪРВОТО падане праща един последен пакет (с mV), после само спи.
+  int16_t batMv = BATTERY_RAW_NODATA;
+  if (cfg.hasBattery) {
+    batMv = board_battery_mv();
+    bool wasLow = board_battery_low_flag();
+    if (board_battery_is_low(batMv)) {
+      ESP_LOGW(TAG, "ниска батерия (%" PRId32 " mV): без измерване и предаване", (int32_t)batMv);
+      if (!wasLow) {
+        SensorSample last;
+        last.s_t = last.s_h = last.a_t = last.a_h = SENSOR_RAW_NODATA;
+        last.bat_mv = batMv;
+        if (sensor_radio_init(&cfg)) sensor_send_packet(&cfg, &last);   // последен пакет: бекендът вижда реалното ниско mV
+      }
+      power_deep_sleep_us(SLEEP_US);
+    }
+  }
   board_iface_power(true);                // сензорите се захранват само за измерването
   hal_delay_ms(SENSOR_POWER_SETTLE_MS);   // ~1 s: сензорите се събуждат; измерването е по команда и е свежо
   sensors_init();
@@ -41,7 +59,7 @@ extern "C" void app_main(void) {
   sensors_read(&sample);
   sensors_deinit();                       // шините не са нужни повече; радиото и сънят следват
   board_iface_power(false);               // сензорите се изключват веднага след измерването
-  if (cfg.hasBattery) sample.bat_mv = board_battery_mv();   // радиото е в покой: ADC не се бърка с предаване
+  sample.bat_mv = batMv;                  // измерена в началото, без товар (BATTERY_RAW_NODATA ако няма батерия)
 
   if (sensor_radio_init(&cfg)) {
     sensor_send_packet(&cfg, &sample);

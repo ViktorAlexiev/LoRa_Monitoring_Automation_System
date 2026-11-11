@@ -67,6 +67,13 @@ void hal_restart(void) __attribute__((noreturn));
 // логва причината, изчаква 2 s (да излезе редът и да няма бърз цикъл на рестарти) и рестартира - вместо
 // устройството да остане тихо "живо" без функция.
 void hal_fatal_restart(const char *what) __attribute__((noreturn));
-bool hal_woke_from_deep_sleep(void);        // причина на рестарта = събуждане от дълбок сън
+bool hal_woke_from_deep_sleep(void);
+
+// Task watchdog на ESP-IDF за приложения без самостоятелна настройка (executor, repeater): рестарт (panic) при липса на
+// "храна" за timeout_ms. Idle задачите не се наблюдават (автоматичният лек сън). Наблюдаваната задача вика
+// esp_task_wdt_add(NULL) и после esp_task_wdt_reset() на всяка обиколка; чакането ѝ е ограничено до AGRO_TASK_WAKE_MAX_MS.
+#define AGRO_TASK_WDT_TIMEOUT_MS  UINT32_C(30000)
+#define AGRO_TASK_WAKE_MAX_MS     UINT32_C(5000)
+bool hal_task_wdt_start(uint32_t timeout_ms);        // причина на рестарта = събуждане от дълбок сън
 
 #endif

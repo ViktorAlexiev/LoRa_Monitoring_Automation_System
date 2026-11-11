@@ -28,4 +28,7 @@
 64: `hal_nvs_init`: инициализира [[nvs]] (с изтриване при нова версия или пълна памет).
 65: `hal_restart(void) __attribute__((noreturn))`: рестартира чипа. [[noreturn]] казва на компилатора, че функцията никога не връща управлението.
 70: `hal_woke_from_deep_sleep`: `true`, ако чипът се е събудил от дълбок сън (а не от захранване или рестарт).
-72: `#endif`: краят на [[header-guard]].
+75: `AGRO_TASK_WDT_TIMEOUT_MS` (30 s): след толкова време без "храна" task watchdog-ът рестартира чипа.
+76: `AGRO_TASK_WAKE_MAX_MS` (5 s): най-дългото чакане на наблюдаваната задача; така тя се събужда поне веднъж на 5 s да нахрани watchdog-а.
+77: `hal_task_wdt_start(timeout_ms)`: настройва task watchdog-а на ESP-IDF (рестарт при липса на "храна"). За executor и repeater; gateway-ят си го настройва сам ([[watchdog]]).
+79: `#endif`: краят на [[header-guard]].

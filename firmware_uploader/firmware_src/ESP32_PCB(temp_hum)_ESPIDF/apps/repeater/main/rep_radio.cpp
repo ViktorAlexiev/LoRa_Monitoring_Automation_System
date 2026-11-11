@@ -13,6 +13,8 @@
 #include "esp_timer.h"
 #include "agro_hal.h"
 #include "board_power.h"
+#include "esp_task_wdt.h"
+#include "power.h"
 #include "protocol.h"
 #include "radio_timing.h"
 
@@ -129,7 +131,13 @@ void rep_fwd_process(const FwdItem &it) {
 
   // Батерията се мери ПРЕДИ mutex-а на радиото (ADC отнема ~20-30 ms, а rx не бива да чака за това)
   int16_t batMv = BATTERY_RAW_NODATA;
-  if (it.kind == FWD_KIND_HB && s_cfg->hasBattery) batMv = board_battery_mv();
+  if (it.kind == FWD_KIND_HB && s_cfg->hasBattery) {
+    batMv = board_battery_mv();
+    if (board_battery_is_low(batMv)) {            // под прага: радиото не се пуска повече, дълбок сън (не връща)
+      ESP_LOGW(TAG, "ниска батерия (под %" PRId32 " mV): дълбок сън за %" PRId32 " s", (int32_t)BATT_CUTOFF_MV, (int32_t)BATT_LOW_SLEEP_S);
+      power_deep_sleep_us(BATT_LOW_SLEEP_US);
+    }
+  }
 
   // FORWARD (PERSIST): изчаква паузата след чуждо предаване (напр. друг repeater препраща същия кадър - иначе се
   // предава върху него и кадърът се губи), а ако каналът е запушен цял срок - предава въпреки това (измерването е
@@ -201,6 +209,7 @@ static void hbTimerCb(void *) {
 
 void rep_rx_task(void *) {
   s_rxTask = xTaskGetCurrentTaskHandle();
+  esp_task_wdt_add(nullptr);   // от тук rep_rx трябва да "храни" watchdog-а (мъртъв радио чип или заклещен mutex -> рестарт след 30 s)
   xSemaphoreTake(s_mutex, portMAX_DELAY);
   rep_radio_begin();
   xSemaphoreGive(s_mutex);
@@ -215,7 +224,9 @@ void rep_rx_task(void *) {
 
   for (;;) {
     HAL_STACK_PROBE();
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);     // само DIO1 - никакво опресняване; чипът спи между пакетите
+    // DIO1 буди задачата; иначе тя се събужда най-много на 5 s само да нахрани task watchdog-а (чипът спи между пакетите)
+    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(AGRO_TASK_WAKE_MAX_MS)) == 0) { esp_task_wdt_reset(); continue; }
+    esp_task_wdt_reset();
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     rep_rx_service();
     xSemaphoreGive(s_mutex);

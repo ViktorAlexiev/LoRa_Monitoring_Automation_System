@@ -16,12 +16,16 @@
 29: ... лог ...
 30: ... `return`: радиото не стартира.
 31: затваря.
-33: `QueueHandle_t fwdQ = xQueueCreate(FWD_QUEUE_SIZE, sizeof(FwdItem));` създава опашка за 4 елемента по `sizeof(FwdItem)` байта (опашката копира елементите) ([[queue]]).
-34: `SemaphoreHandle_t mutex = xSemaphoreCreateMutex();` създава mutex с наследяване на приоритет ([[mutex]]).
-36: `rep_radio_reset(&s_cfg, fwdQ, mutex);` подава ги на радио слоя.
-38: `xTaskCreatePinnedToCore(rep_rx_task, "rep_rx", 4096, nullptr, 6, nullptr, 1);` създава задача: функция, име, стек 4096 B, аргумент (няма), приоритет 6, дръжка (не се иска), ядро 1 ([[freertos-task]]).
-39: същото за `rep_fwd` с приоритет 5.
-45: `power_enable_auto_light_sleep(LORA_DIO1);` включва автоматичния лек сън с DIO1 като източник за събуждане.
-47: лог "готов" с ID и честотите.
-48: (продължение на аргументите).
-49: затваря `app_main`. След връщането ESP-IDF изтрива главната задача; `rep_rx` и `rep_fwd` продължават.
+34: ако има батерия и е под прага (хистерезис 3.4/3.5 V) ...
+35: ... записва предупреждение ...
+36: ... и заспива дълбоко за 10 минути, без да пуска радиото. При събуждане `app_main` се изпълнява наново и пак мери.
+38: стартира task watchdog-а (30 s); `rep_rx` го храни. Ако радиото не отговаря или задачата се закачи, чипът се рестартира.
+40: `QueueHandle_t fwdQ = xQueueCreate(FWD_QUEUE_SIZE, sizeof(FwdItem));` създава опашка за 4 елемента по `sizeof(FwdItem)` байта (опашката копира елементите) ([[queue]]).
+41: `SemaphoreHandle_t mutex = xSemaphoreCreateMutex();` създава mutex с наследяване на приоритет ([[mutex]]).
+43: `rep_radio_reset(&s_cfg, fwdQ, mutex);` подава ги на радио слоя.
+45: `xTaskCreatePinnedToCore(rep_rx_task, "rep_rx", 4096, nullptr, 6, nullptr, 1);` създава задача: функция, име, стек 4096 B, аргумент (няма), приоритет 6, дръжка (не се иска), ядро 1 ([[freertos-task]]).
+46: същото за `rep_fwd` с приоритет 5.
+52: `power_enable_auto_light_sleep(LORA_DIO1);` включва автоматичния лек сън с DIO1 като източник за събуждане.
+54: лог "готов" с ID и честотите.
+55: (продължение на аргументите).
+56: затваря `app_main`. След връщането ESP-IDF изтрива главната задача; `rep_rx` и `rep_fwd` продължават.

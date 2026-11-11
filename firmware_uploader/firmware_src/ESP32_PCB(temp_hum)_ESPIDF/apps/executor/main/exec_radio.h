@@ -11,7 +11,7 @@
   Тази задача НЕ върти в празно: exec_radio_service() връща след колко ms има следващо задължително събитие
   (край на пауза за ACK, стъпка на достъпа до канала, таймаут на retry, jitter на HB) и задачата чака
   точно толкова в ulTaskNotifyTake() - събужда я още DIO1, нова заявка от опашката или таймерът на HB.
-  Когато няма какво да се чака, задачата блокира безкрайно и чипът заспива (автоматичен лек сън).
+  Когато няма какво да се чака, задачата чака най-много AGRO_TASK_WAKE_MAX_MS (5 s: храни task watchdog-а) и чипът заспива (автоматичен лек сън).
 */
 #ifndef EXEC_RADIO_H
 #define EXEC_RADIO_H
@@ -45,6 +45,10 @@ void exec_radio_set_task(TaskHandle_t t);
 bool exec_radio_tx_busy(void);
 bool exec_radio_restart_pending(void);
 int32_t exec_radio_ack_pending(void);
+
+// Ниска батерия: изключва консуматорите и ключа на интерфейсите, заключва пиновете в LOW и заспива дълбоко (BATT_LOW_SLEEP_S).
+// Не връща. При събуждане app_main мери батерията наново.
+void exec_low_battery_shutdown(const ExecConfig *cfg) __attribute__((noreturn));
 
 // Тялото на задачата "exec_radio" (arg = NULL)
 void exec_radio_task(void *arg);

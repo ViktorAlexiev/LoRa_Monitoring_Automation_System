@@ -12,7 +12,7 @@
 15: `uint32_t freqTxHz;` предавателната: лентата по-близо до gateway-а.
 16: `uint8_t sf;`
 17: `uint32_t bwHz;`
-18: `int8_t txPowerDbm;` мощност от NVS `txp`.
+18: `txPowerDbm`: мощност от NVS `txp` (-9..12); по подразбиране `LORA_TX_POWER_DBM`; радиото я ограничава до модула и регулаторния таван (12 dBm за 433 MHz).
 19: `uint8_t key[CRYPTO_KEY_LEN];` ключът.
 20: `bool hasKey;`
 21: `bool hasId;`

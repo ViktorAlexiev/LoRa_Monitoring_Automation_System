@@ -25,13 +25,18 @@ static ExecConfig s_cfg;   // статична: задачите държат у
 
 extern "C" void app_main(void) {
   board_power_init();
-  board_iface_power(true);                 // executor: интерфейсите се включват в началото и остават включени
   hal_nvs_init();
   exec_config_load(&s_cfg);
 
   // Всички консуматори са изключени при (ре)стартиране - съзнателно безопасно състояние; бекендът го вижда
   // чрез автоматичния state response след boot.
   consumers_init(&s_cfg.consumers);
+
+  // Ниска батерия: мери се ПРЕДИ интерфейсите да се включат (без товар). Под BATT_CUTOFF_MV (до BATT_RESUME_MV) устройството
+  // изключва консуматорите и заспива; иначе продължава нормално.
+  if (s_cfg.hasBattery && board_battery_is_low(board_battery_mv())) exec_low_battery_shutdown(&s_cfg);
+  board_iface_power(true);                 // executor: интерфейсите се включват и остават включени
+  hal_task_wdt_start(AGRO_TASK_WDT_TIMEOUT_MS);   // task watchdog (30 s); exec_radio го храни
 
   if (!s_cfg.hasId || !s_cfg.hasKey) {
     ESP_LOGE(TAG, "няма id/ключ в NVS - не стартирам радиото (консуматорите остават изключени)");

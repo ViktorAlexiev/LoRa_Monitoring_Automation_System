@@ -22,6 +22,7 @@
 45: `bool exec_radio_tx_busy(void);` дали е зает TX слотът.
 46: `bool exec_radio_restart_pending(void);` дали чака restart отговорът.
 47: `int32_t exec_radio_ack_pending(void);` колко ACK чакат.
-49: коментар: тялото на задачата `exec_radio`.
-50: `void exec_radio_task(void *arg);`
-52: `#endif`.
+51: `exec_low_battery_shutdown(cfg)`: при ниска батерия изключва консуматорите и ключа, заключва пиновете в LOW и заспива дълбоко. `noreturn`: не връща.
+53: коментар: тялото на задачата `exec_radio`.
+54: `void exec_radio_task(void *arg);`
+56: `#endif`.
