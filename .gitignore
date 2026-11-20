@@ -77,3 +77,6 @@ Thumbs.db
 # ============================================================
 documentation/*.backup_*.docx
 documentation/*.backup*.docx
+
+# local demo run (dev_tools/start_demo.sh): its database and logs
+web_dashboard/backend/dev_tools/.demo/

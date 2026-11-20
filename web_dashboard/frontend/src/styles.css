@@ -643,3 +643,82 @@ a.site-zone:hover { filter: brightness(0.96); }
 }
 .panzoom-btn:disabled { opacity: 0.4; cursor: default; }
 .panzoom-hint { margin-top: 6px; font-size: 0.8rem; color: var(--ink-2); }
+
+/* external (reference) sensors: "outside" vs "inside" */
+.where-tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; vertical-align: middle; }
+.where-out { background: #dcebfa; color: #0b4a8a; border: 1px solid #8ab8e6; }
+.where-in { background: #e1f1e4; color: #1f5a33; border: 1px solid #8fc79c; }
+.outside-block { margin-top: 20px; padding-top: 4px; border-top: 2px dashed #8ab8e6; }
+.ext-card { margin: 12px 0; }
+.ext-values { display: flex; flex-wrap: wrap; gap: 24px; margin: 8px 0; }
+.ext-values > div { display: flex; flex-direction: column; }
+.ext-values .val { font-size: 1.6rem; font-weight: 800; color: #0b4a8a; line-height: 1.1; }
+.ext-values .lbl { font-size: 0.8rem; color: var(--ink-2); }
+.map-pill.ext-pill { background: #e8f2fb; border-color: #0b5cad; border-style: dashed; font: inherit; cursor: pointer; }
+.map-tile.map-tile-ext { background: #e8f2fb; border-style: dashed; border-color: #0b5cad; cursor: pointer; }
+.map-chip.ext-chip { border-color: #0b5cad; border-style: dashed; background: #e8f2fb; }
+
+/* external sensor cards: two per row, charts filling their card */
+.ext-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap); align-items: start; }
+.ext-card { align-items: stretch; margin: 0; }
+.ext-card .overview-charts { width: 100%; margin-top: 8px; }
+@media (max-width: 900px) { .ext-grid { grid-template-columns: minmax(0, 1fr); } }
+button.site-zone-btn { font: inherit; text-align: center; cursor: pointer; }
+
+.map-tile { cursor: pointer; }
+
+.tile-head-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* round tinted icon badge on gauges: warm = temperature, blue = humidity */
+.stat-icon { width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.stat-icon-temp { background: #fde8de; color: #c2410c; }
+.stat-icon-hum { background: #dcebfa; color: #0b5cad; }
+.dew-point-row { align-items: center; gap: 12px; }
+.lbl .icon { vertical-align: -2px; }
+
+.subtab .icon, .btn .icon { vertical-align: -3px; }
+
+/* folder tabs: a coloured band, the active tab is a raised sheet joined to the panel below */
+.folder-tabs {
+  display: flex; gap: 6px; margin-top: 16px; padding: 10px 10px 0; background: #d9eadc; border: 2px solid var(--border); border-bottom: 0;
+  border-radius: var(--radius) var(--radius) 0 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+}
+.folder-tabs::-webkit-scrollbar { display: none; }
+.folder-tab {
+  display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; border: 0; background: transparent;
+  color: #2f6b45; font: inherit; font-weight: 700; white-space: nowrap; cursor: pointer;
+  border-radius: 10px 10px 0 0; min-height: 44px;
+}
+.folder-tab:hover { background: rgba(255, 255, 255, 0.6); }
+.folder-tab.active { background: var(--surface); color: var(--accent-strong); box-shadow: 0 -2px 0 var(--accent) inset; }
+.folder-tab .icon { vertical-align: -3px; }
+.folder-panel { background: var(--surface); border: 2px solid var(--border); border-top: 0; border-radius: 0 0 var(--radius) var(--radius); padding: 16px; margin-bottom: 16px; }
+@media (max-width: 520px) { .folder-tab { padding: 10px 12px; } .folder-panel { padding: 12px; } }
+
+/* battery monitoring */
+.bat-chip { gap: 6px; font-weight: 700; }
+.bat-ok { --bat: #2d7a4b; }
+.bat-low { --bat: #b07400; }
+.bat-critical { --bat: #c4362b; }
+.bat-nodata { --bat: #6b7280; }
+.bat-chip.bat-ok, .bat-chip.bat-low, .bat-chip.bat-critical, .bat-chip.bat-nodata { color: var(--bat); border-color: var(--bat); }
+.bat-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); margin-bottom: var(--gap); }
+.bat-sum { display: flex; flex-direction: column; padding: 10px 14px; border-radius: var(--radius-sm); background: var(--surface-2); border-left: 6px solid var(--bat); }
+.bat-sum .val { font-size: 1.7rem; font-weight: 800; color: var(--bat); line-height: 1.1; }
+.bat-sum .lbl { font-size: 0.85rem; color: var(--ink-2); font-weight: 600; }
+.bat-card { text-align: left; font: inherit; cursor: pointer; align-items: stretch; width: 100%; }
+.bat-card:hover { border-color: var(--border-strong); }
+.bat-big { display: flex; align-items: center; gap: 12px; margin: 8px 0 6px; }
+.bat-big .val { font-size: 1.9rem; font-weight: 800; color: var(--bat); line-height: 1; }
+.bat-icon { color: var(--bat); display: inline-flex; }
+.bat-bar { height: 12px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.bat-fill { height: 100%; border-radius: 999px; background: var(--bat); }
+.bat-status { margin-top: 6px; font-weight: 700; color: var(--bat); font-size: 0.9rem; }
+@media (max-width: 700px) { .bat-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* search + filter bars above tile lists */
+.list-search { margin: 0 0 12px; }
+.list-search input { width: 100%; max-width: 460px; }
+.list-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+.list-filters .list-search { margin: 0; flex: 1 1 260px; }
+.list-filters select { flex: 0 1 220px; }

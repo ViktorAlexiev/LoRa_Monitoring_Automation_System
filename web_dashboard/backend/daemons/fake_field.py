@@ -25,6 +25,7 @@ Usage: python daemons/fake_field.py
 
 import argparse
 import json
+import math
 import random
 import sys
 import threading
@@ -67,7 +68,16 @@ EXECUTOR_CONSUMERS = {
     "E001": ["V01", "V02", "V03", "P01"],
     "E002": ["V04", "P02", "V05", "P03"],
 }
-SENSORS = ["S001", "S002", "S003", "S004"]
+SENSORS = ["S001", "S002", "S003", "S004", "SX01", "SX02", "SX03"]
+# External (reference) sensors: the node has no soil probe, so - exactly like the
+# real firmware's full packet - the soil fields carry the "no data" marker -32768.
+EXTERNAL_SENSORS = {"SX01", "SX02", "SX03"}
+# Battery voltage in mV each battery-powered device reports (sensor packets and the
+# repeater's heartbeat carry "battery_mv"); a device without a battery - the executors
+# here - sends the "no data" marker -32768 and the server ignores it. S004 and SX01 are
+# deliberately low so the alarms and the battery tab have something to show.
+BATTERY_START = {"S001": 4010, "S002": 3920, "S003": 3790, "S004": 3345, "SX01": 3735, "SX02": 4090, "SX03": 3880, "R001": 3860}
+NO_BATTERY = -32768
 # sensor_id -> which valve(s), if opened, raise this sensor's soil humidity -
 # mirrors seed.py's zone membership (S00x sits in the same zone as V0y).
 SENSOR_ZONE_VALVES = {
@@ -80,7 +90,8 @@ REPEATER_ROUTES = {"S002", "S004"}  # per RepeaterSensor seed rows - these repor
 
 SOIL_DRY_DRIFT = -0.06     # %RH per second, slow natural drying
 SOIL_WATER_RISE = 0.9      # %RH per second while a feeding valve is open
-AIR_BASE = {"S001": (24.0, 52.0), "S002": (22.5, 55.0), "S003": (20.5, 58.0), "S004": (18.0, 46.0)}
+AIR_BASE = {"S001": (24.0, 52.0), "S002": (22.5, 55.0), "S003": (20.5, 58.0), "S004": (18.0, 46.0),
+            "SX01": (13.0, 80.0), "SX02": (12.0, 84.0), "SX03": (11.0, 87.0)}  # outdoors: cooler and damper
 
 
 class FakeExecutor:
@@ -177,6 +188,7 @@ class FieldSimulator:
         self.sensors_faulty = set()      # sensor ids to report -32768 (-> SENSOR_FAULT_255)
         self.sensors_stuck = set()       # sensor ids to freeze their last value (-> SENSOR_STUCK_VALUE)
         self.executors_paused = set()    # executor ids to stop heartbeating (-> device offline)
+        self.battery_mv = dict(BATTERY_START)  # drains a little with every report
         self.repeater_paused = False
         self.gateway_paused = False
 
@@ -239,22 +251,39 @@ class FieldSimulator:
             self.soil_h[sensor_id] += SOIL_DRY_DRIFT * SENSOR_PERIOD_S * random.uniform(0.7, 1.3)
         self.soil_h[sensor_id] = max(5.0, min(95.0, self.soil_h[sensor_id]))
 
+    def _battery(self, device_id):
+        """Current voltage of a device, slowly draining (about 1 mV per report)."""
+        if device_id not in self.battery_mv:
+            return NO_BATTERY
+        self.battery_mv[device_id] = max(3000, self.battery_mv[device_id] - random.choice((0, 0, 1, 1, 2)))
+        return self.battery_mv[device_id]
+
     def _sensor_loop(self):
         while not self.stop_event.is_set():
             for sensor_id in SENSORS:
                 if sensor_id in self.sensors_paused:
                     continue  # simulates SENSOR_OFFLINE - no packet sent at all
-                if sensor_id not in self.sensors_stuck:
+                if sensor_id not in self.sensors_stuck and sensor_id not in EXTERNAL_SENSORS:
                     self._step_soil(sensor_id)
                 soil_t_base, air_t_base = 21.0, AIR_BASE[sensor_id][0]
                 air_h_base = AIR_BASE[sensor_id][1]
 
                 if sensor_id in self.sensors_faulty:
                     payload = {"id": sensor_id, "sT": -32768.0, "sH": -32768.0, "aT": -32768.0, "aH": -32768.0,
-                               "rssi": -60, "snr": 8.0, "ts": int(time.time())}
+                               "battery_mv": NO_BATTERY, "rssi": -60, "snr": 8.0, "ts": int(time.time())}
+                elif sensor_id in EXTERNAL_SENSORS:
+                    h = (time.localtime().tm_hour + time.localtime().tm_min / 60) % 24
+                    swing = math.sin((h - 9) / 24 * 2 * math.pi)   # coldest ~03:00, warmest ~15:00
+                    payload = {
+                        "id": sensor_id, "sT": -32768.0, "sH": -32768.0, "battery_mv": self._battery(sensor_id),
+                        "aT": round(air_t_base + 6 * swing + random.uniform(-0.3, 0.3), 1),
+                        "aH": round(max(20.0, min(99.0, air_h_base - 18 * swing + random.uniform(-1.0, 1.0))), 1),
+                        "rssi": random.randint(-95, -50), "snr": round(random.uniform(1.0, 9.0), 1), "ts": int(time.time()),
+                    }
                 else:
                     payload = {
                         "id": sensor_id,
+                        "battery_mv": self._battery(sensor_id),
                         "sT": round(soil_t_base + random.uniform(-0.8, 0.8), 1),
                         "sH": round(self.soil_h[sensor_id], 1),
                         "aT": round(air_t_base + random.uniform(-1.0, 1.0), 1),
@@ -275,12 +304,12 @@ class FieldSimulator:
                 self.client.publish(TOPIC_HEARTBEAT, json.dumps({"id": GATEWAY_ID, "ts": now}), qos=0)
             if not self.repeater_paused:
                 self.client.publish(TOPIC_HEARTBEAT, json.dumps({
-                    "id": REPEATER_ID, "ts": now,
+                    "id": REPEATER_ID, "ts": now, "battery_mv": self._battery(REPEATER_ID),
                     "rssi": random.randint(-95, -50), "snr": round(random.uniform(1.0, 10.0), 1),
                 }), qos=0)
             for executor_id in self.executors:
                 if executor_id not in self.executors_paused:
-                    self.client.publish(TOPIC_HEARTBEAT, json.dumps({"id": executor_id, "ts": now}), qos=0)
+                    self.client.publish(TOPIC_HEARTBEAT, json.dumps({"id": executor_id, "ts": now, "battery_mv": NO_BATTERY}), qos=0)
             time.sleep(HEARTBEAT_PERIOD_S)
 
     def start(self):

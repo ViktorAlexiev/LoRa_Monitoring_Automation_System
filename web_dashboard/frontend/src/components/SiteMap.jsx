@@ -12,11 +12,12 @@ export function zoneTone(z) {
 
 // The whole site on one picture: every zone as a box, plus landmarks. A zone
 // the user may open is a link; one they may not is a grey, inert box.
-export default function SiteMap({ zones, map, showLocked = true }) {
+export default function SiteMap({ zones, map, showLocked = true, onSelectExternal = () => {}, onSelectZone = null }) {
   const byId = Object.fromEntries(zones.map((z) => [z.id, z]));
+  const sensors = map.sensors || []; // external (reference) sensors with their live outdoor values
   const placed = map.zones.filter((p) => byId[p.zone_id] && (showLocked || byId[p.zone_id].accessible));
   return (
-    <PanZoom className="site-map-whole" bounds={mapBounds([...map.objects, ...placed])}>
+    <PanZoom className="site-map-whole" bounds={mapBounds([...map.objects, ...placed, ...sensors.map((s) => ({ x: s.x, y: s.y, w: 14, h: 8 }))])}>
       {() => (
         <>
         {map.objects.map((o, i) => (
@@ -41,13 +42,27 @@ export default function SiteMap({ zones, map, showLocked = true }) {
               {!z.accessible && <span className="site-zone-lock">няма достъп</span>}
             </>
           );
+          if (z.accessible && onSelectZone) {
+            return (
+              <button type="button" key={p.zone_id} className={`site-zone site-zone-${tone} site-zone-btn`} style={style}
+                      onClick={() => onSelectZone(z)}>{inner}</button>
+            );
+          }
           return z.accessible ? (
             <Link key={p.zone_id} to={`/zones/${z.id}`} className={`site-zone site-zone-${tone}`} style={style}>{inner}</Link>
           ) : (
             <div key={p.zone_id} className={`site-zone site-zone-${tone}`} style={style} aria-disabled="true">{inner}</div>
           );
         })}
-        {placed.length === 0 && <div className="site-map-empty">Картата на обекта още не е подредена — админът я подрежда от „Зони“.</div>}
+        {sensors.map((s) => (
+          <button type="button" key={s.sensor_id} className="map-pill ext-pill" style={{ left: `${s.x}%`, top: `${s.y}%` }}
+                  title={`${s.name || s.sensor_id} — външен сензор`} onClick={() => onSelectExternal({ id: s.sensor_id, name: s.name })}>
+            <span className="mono map-pill-id">↗ {s.sensor_id}</span>
+            <span className="map-pill-val">{s.air_t != null ? `${s.air_t.toFixed(1)}°` : "—"}</span>
+            <span className="map-pill-val">{s.air_h != null ? `${s.air_h.toFixed(0)}%` : ""}</span>
+          </button>
+        ))}
+        {placed.length === 0 && sensors.length === 0 && <div className="site-map-empty">Картата на обекта още не е подредена — админът я подрежда от „Зони“.</div>}
         </>
       )}
     </PanZoom>

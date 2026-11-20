@@ -11,7 +11,7 @@ const TILE_H = 104;
 // The zone's sensors laid out the way the admin arranged them on the site
 // (see ZoneLayoutModal). Read-only: live values at each spot. The map can be
 // zoomed and dragged, and ends where its elements end.
-export default function SensorMap({ sensors, layout, objects = [], readings, errors }) {
+export default function SensorMap({ sensors, layout, objects = [], readings, errors, onSelectExternal = null, onSelectSensor = null }) {
   const [open, setOpen] = useState(null); // sensor id whose detail card is open (compact mode)
 
   const at = Object.fromEntries(layout.map((i) => [i.sensor_id, i]));
@@ -53,17 +53,20 @@ export default function SensorMap({ sensors, layout, objects = [], readings, err
               if (compact) {
                 const isOpen = open === s.id;
                 return (
-                  <div key={s.id} className={`map-pill ${sev} ${isOpen ? "map-pill-open" : ""}`} style={style} title={title}
-                       onClick={(e) => { e.stopPropagation(); setOpen(isOpen ? null : s.id); }} role="button" tabIndex={0}
+                  <div key={s.id} className={`map-pill ${s.kind === "external" ? "ext-pill" : ""} ${sev} ${isOpen ? "map-pill-open" : ""}`} style={style} title={title}
+                       onClick={(e) => { e.stopPropagation(); if (s.kind === "external" && onSelectExternal) { onSelectExternal(s); return; } setOpen(isOpen ? null : s.id); }} role="button" tabIndex={0}
                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setOpen(isOpen ? null : s.id); }}>
                     <span className="mono map-pill-id">{flag}{s.id}</span>
-                    <span className="map-pill-val">{last?.soil_h != null ? `${last.soil_h.toFixed(0)}%` : "—"}</span>
+                    <span className="map-pill-val">{s.kind === "external" ? (last?.air_t != null ? `${last.air_t.toFixed(0)}°` : "—") : (last?.soil_h != null ? `${last.soil_h.toFixed(0)}%` : "—")}</span>
                     {isOpen && (
                       <div className={`map-pill-card ${at[s.id].x > 62 ? "card-right" : at[s.id].x < 38 ? "card-left" : ""}`} onClick={(e) => e.stopPropagation()}>
                         <b>{s.name || s.id}</b>
-                        <div>Почва: {fmt(last?.soil_h, 0)}% · {fmt(last?.soil_t)}°</div>
+                        {s.kind === "external" ? <div>Външен сензор</div> : <div>Почва: {fmt(last?.soil_h, 0)}% · {fmt(last?.soil_t)}°</div>}
                         <div>Въздух: {fmt(last?.air_h, 0)}% · {fmt(last?.air_t)}°</div>
                         {err && <div className="map-pill-err">{err.description}</div>}
+                        {onSelectSensor && s.kind !== "external" && (
+                          <button type="button" className="btn btn-sm" onClick={() => onSelectSensor(s)}>Графика</button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -71,13 +74,25 @@ export default function SensorMap({ sensors, layout, objects = [], readings, err
               }
 
               return (
-                <div key={s.id} className={`map-tile ${sev}`} style={style} title={title}>
+                <div key={s.id} className={`map-tile ${s.kind === "external" ? "map-tile-ext" : ""} ${sev}`} style={style} title={title}
+                     onClick={s.kind === "external" ? (onSelectExternal ? () => onSelectExternal(s) : undefined)
+                       : (onSelectSensor ? () => onSelectSensor(s) : undefined)}>
                   <div className="map-tile-head">
                     <span className="mono map-tile-id">{flag}{s.id}</span>
                   </div>
-                  <div className="map-tile-main">{last?.soil_h != null ? `${last.soil_h.toFixed(0)}%` : "—"}</div>
-                  <div className="map-tile-sub">почва {last?.soil_t != null ? `${last.soil_t.toFixed(1)}°` : "—"}</div>
-                  <div className="map-tile-sub">въздух {last?.air_t != null ? `${last.air_t.toFixed(1)}°` : "—"}</div>
+                  {s.kind === "external" ? (
+                    <>
+                      <div className="map-tile-main">{last?.air_t != null ? `${last.air_t.toFixed(1)}°` : "—"}</div>
+                      <div className="map-tile-sub">въздух {last?.air_h != null ? `${last.air_h.toFixed(0)}%` : "—"}</div>
+                      <div className="map-tile-sub">външен</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="map-tile-main">{last?.soil_h != null ? `${last.soil_h.toFixed(0)}%` : "—"}</div>
+                      <div className="map-tile-sub">почва {last?.soil_t != null ? `${last.soil_t.toFixed(1)}°` : "—"}</div>
+                      <div className="map-tile-sub">въздух {last?.air_t != null ? `${last.air_t.toFixed(1)}°` : "—"}</div>
+                    </>
+                  )}
                   <div className="map-tile-name">{s.name}</div>
                 </div>
               );

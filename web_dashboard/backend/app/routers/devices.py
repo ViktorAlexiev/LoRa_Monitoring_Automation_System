@@ -33,6 +33,13 @@ def _detach_valve_from_zone(db: Session, valve: models.Valve):
     valve.zone_id = None
 
 
+def _battery_default(kind: str, chosen):
+    """Has the new device a battery? The admin's tick if given, else the default from Настройки."""
+    if chosen is not None:
+        return bool(chosen)
+    return bool(config.CONFIG["battery"][f"default_has_battery_{kind}"])
+
+
 # --------------------------------------------------------------- executors ----
 
 @router.get("/executors", response_model=list[schemas.ExecutorOut])
@@ -44,7 +51,8 @@ def list_executors(db: Session = Depends(get_db)):
 def create_executor(payload: schemas.ExecutorCreate, db: Session = Depends(get_db)):
     if db.get(models.Executor, payload.id):
         raise HTTPException(409, f"Executor {payload.id} already exists")
-    obj = models.Executor(id=payload.id, name=payload.name, transport=payload.transport)
+    obj = models.Executor(id=payload.id, name=payload.name, transport=payload.transport,
+                          has_battery=_battery_default("executor", payload.has_battery))
     db.add(obj)
     db.commit()
     db.refresh(obj)
@@ -98,7 +106,7 @@ def list_repeaters(db: Session = Depends(get_db)):
 def create_repeater(payload: schemas.RepeaterCreate, db: Session = Depends(get_db)):
     if db.get(models.Repeater, payload.id):
         raise HTTPException(409, f"Repeater {payload.id} already exists")
-    obj = models.Repeater(id=payload.id, name=payload.name)
+    obj = models.Repeater(id=payload.id, name=payload.name, has_battery=_battery_default("repeater", payload.has_battery))
     db.add(obj)
     db.flush()
     for sensor_id in payload.sensor_ids:
@@ -193,7 +201,10 @@ def create_sensor(payload: schemas.SensorCreate, db: Session = Depends(get_db)):
         raise HTTPException(409, f"Sensor {payload.id} already exists")
     if payload.zone_id and not db.get(models.Zone, payload.zone_id):
         raise HTTPException(400, "Unknown zone_id")
-    obj = models.Sensor(id=payload.id, name=payload.name, zone_id=payload.zone_id)
+    if payload.kind == "external" and payload.zone_id:
+        raise HTTPException(400, "Външният сензор не принадлежи на една зона — добавя се като референтен във всяка зона поотделно")
+    obj = models.Sensor(id=payload.id, name=payload.name, kind=payload.kind, zone_id=payload.zone_id,
+                        has_battery=_battery_default("sensor", payload.has_battery))
     db.add(obj)
     db.flush()
     if payload.repeater_id:
@@ -210,7 +221,9 @@ def update_sensor(sensor_id: str, payload: schemas.SensorUpdate, db: Session = D
     obj = db.get(models.Sensor, sensor_id)
     if not obj:
         raise HTTPException(404, "Not found")
-    for field in ("name", "zone_id", "is_active"):
+    if obj.kind == "external" and payload.zone_id:
+        raise HTTPException(400, "Външният сензор не принадлежи на една зона — добавя се като референтен във всяка зона поотделно")
+    for field in ("name", "zone_id", "is_active", "has_battery"):
         value = getattr(payload, field)
         if value is not None:
             setattr(obj, field, value)

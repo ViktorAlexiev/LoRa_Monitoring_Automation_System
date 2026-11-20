@@ -25,7 +25,7 @@ def seed(db: Session) -> None:
     e2 = models.Executor(id="E002", name="Разпределително — Оранжерия Б / В")
     db.add_all([e1, e2])
 
-    r1 = models.Repeater(id="R001", name="Граничен, покрив Оранжерия A")
+    r1 = models.Repeater(id="R001", name="Граничен, покрив Оранжерия A", has_battery=True)
     db.add(r1)
 
     gw = models.Gateway(id="GW01", name="Централен gateway — техническо помещение")
@@ -37,12 +37,23 @@ def seed(db: Session) -> None:
     db.add_all([p1, p2, p3])
     db.flush()
 
-    s1 = models.Sensor(id="S001", name="Почвен сензор — ред 1", zone_id=z1.id)
-    s2 = models.Sensor(id="S002", name="Почвен сензор — ред 2", zone_id=z2.id)
-    s3 = models.Sensor(id="S003", name="Почвен сензор — маси разсад", zone_id=z3.id)
-    s4 = models.Sensor(id="S004", name="Почвен сензор — парцел В", zone_id=z4.id)
+    s1 = models.Sensor(id="S001", name="Сензор — ред 1", zone_id=z1.id, has_battery=True)
+    s2 = models.Sensor(id="S002", name="Сензор — ред 2", zone_id=z2.id, has_battery=True)
+    s3 = models.Sensor(id="S003", name="Сензор — маси разсад", zone_id=z3.id, has_battery=True)
+    s4 = models.Sensor(id="S004", name="Сензор — парцел В", zone_id=z4.id, has_battery=True)
     db.add_all([s1, s2, s3, s4])
     db.flush()
+
+    # External (reference) sensors: air only, no zone of their own, shared by
+    # several zones (they give the dew point of the zones they are linked to).
+    x1 = models.Sensor(id="SX01", name="Външен — покрив на склада", kind="external", has_battery=True)
+    x2 = models.Sensor(id="SX02", name="Външен — метеостълб, открито поле", kind="external", has_battery=True)
+    x3 = models.Sensor(id="SX03", name="Външен — север, зад оранжериите", kind="external", has_battery=True)
+    db.add_all([x1, x2, x3])
+    db.flush()
+    for sensor, zones in ((x1, (z1, z2, z3)), (x2, (z4,)), (x3, (z1, z2, z3, z4))):
+        for z in zones:
+            db.add(models.ZoneExternalSensor(zone_id=z.id, sensor_id=sensor.id))
 
     db.add_all([
         models.RepeaterSensor(repeater_id="R001", sensor_id="S002"),
@@ -57,6 +68,8 @@ def seed(db: Session) -> None:
     ]
     for sensor, st, sh, at, ah in readings:
         db.add(models.SensorReading(sensor_id=sensor.id, soil_t=st, soil_h=sh, air_t=at, air_h=ah))
+    for sensor, at, ah in ((x1, 12.4, 81), (x2, 11.8, 84), (x3, 11.1, 86)):
+        db.add(models.SensorReading(sensor_id=sensor.id, soil_t=None, soil_h=None, air_t=at, air_h=ah))
 
     v1 = models.Valve(id="V01", name="Капково поливане — ред 1", zone_id=z1.id, pump_id="P01", executor_id="E001", current_state="off")
     v2 = models.Valve(id="V02", name="Капково поливане — ред 2", zone_id=z2.id, pump_id="P01", executor_id="E001", current_state="on")

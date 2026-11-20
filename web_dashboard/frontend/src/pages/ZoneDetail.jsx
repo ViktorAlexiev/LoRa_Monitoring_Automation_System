@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import ErrorList from "../components/ErrorList.jsx";
 import ZoneSettingsModal from "../components/ZoneSettingsModal.jsx";
@@ -9,6 +9,11 @@ import SensorChart from "../components/SensorChart.jsx";
 import SensorMap from "../components/SensorMap.jsx";
 import { sortByMap, gridPlacement } from "../utils/mapObjects.js";
 import DewPoint from "../components/DewPoint.jsx";
+import ExternalSensorCharts from "../components/ExternalSensorCharts.jsx";
+import ExternalSensorModal from "../components/ExternalSensorModal.jsx";
+import SensorModal from "../components/SensorModal.jsx";
+import Icon from "../components/Icon.jsx";
+import BatteryChip from "../components/BatteryChip.jsx";
 import DataAge from "../components/DataAge.jsx";
 import AuditTable from "../components/AuditTable.jsx";
 import Gauge from "../components/Gauge.jsx";
@@ -18,10 +23,10 @@ import { useAuth, zoneAccessLevel } from "../AuthContext.jsx";
 const MODE_LABEL = { manual: "Ръчен", clock: "По време", threshold: "По прагове" };
 const MODE_CLASS = { manual: "pill-manual", clock: "pill-clock", threshold: "pill-threshold" };
 const TABS = [
-  { key: "overview", label: "Преглед" },
-  { key: "sensors", label: "Сензори" },
-  { key: "control", label: "Управление" },
-  { key: "history", label: "История" },
+  { key: "overview", label: "Преглед", icon: "chart" },
+  { key: "sensors", label: "Сензори", icon: "signal" },
+  { key: "control", label: "Управление", icon: "sliders" },
+  { key: "history", label: "История", icon: "clock" },
 ];
 
 const SENSOR_FAULT_VALUE = -32768.0; // manual 2.1: "invalid this cycle" marker - never a real value, excluded everywhere
@@ -91,10 +96,15 @@ export default function ZoneDetail() {
   const { id } = useParams();
   const zoneId = Number(id);
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [tab, setTab] = useState("overview");
   const [zone, setZone] = useState(null);
   const [sensors, setSensors] = useState([]);
+  const [extSensors, setExtSensors] = useState([]); // external (reference) sensors taking part in this zone
+  const [batteries, setBatteries] = useState({}); // "sensor:S001" -> latest battery reading
+  const [extModal, setExtModal] = useState(null); // external sensor whose chart is open
+  const [sensorModal, setSensorModal] = useState(null); // normal sensor whose chart is open
   const [readings, setReadings] = useState({}); // sensor_id -> [readings]
   const [layout, setLayout] = useState([]); // sensor positions on the site map
   const [mapObjects, setMapObjects] = useState([]); // landmarks drawn on the site map
@@ -133,11 +143,14 @@ export default function ZoneDetail() {
         api.zones.layout(zoneId).catch(() => []),
         api.zones.mapObjects(zoneId).catch(() => []),
       ]);
+      api.battery.list().then((l) => setBatteries(Object.fromEntries(l.map((b) => [`${b.kind}:${b.id}`, b])))).catch(() => {});
       setLayout(lay);
       setMapObjects(objs);
       setZone(z);
       const zoneSensors = allSensors.filter((s) => s.zone_id === zoneId);
+      const ext = allSensors.filter((s) => s.kind === "external" && (s.zone_ids || []).includes(zoneId));
       setSensors(zoneSensors);
+      setExtSensors(ext);
       setValves(valvesEverywhere.filter((v) => v.zone_id === zoneId));
       setAllValves(valvesEverywhere);
       setAllZones(zonesEverywhere);
@@ -147,7 +160,7 @@ export default function ZoneDetail() {
       setLoadError(null);
 
       const readingEntries = await Promise.all(
-        zoneSensors.map(async (s) => [s.id, await api.sensors.readings(s.id)])
+        [...zoneSensors, ...ext].map(async (s) => [s.id, await api.sensors.readings(s.id)])
       );
       setReadings(Object.fromEntries(readingEntries));
     } catch (err) {
@@ -293,7 +306,8 @@ export default function ZoneDetail() {
   }
 
   // grid cell of a sensor in the "same arrangement as the map" list
-  const gp = gridPlacement(sensors, layout);
+  const shown = [...sensors, ...extSensors]; // sensors tab: the zone's own + its external reference sensors
+  const gp = gridPlacement(shown, layout);
   function mapCell(id) {
     const p = gp.place[id];
     return p ? { "--r": p.row, "--c": p.col } : { "--r": gp.rows + 1 }; // not on the map: below the grid
@@ -333,18 +347,20 @@ export default function ZoneDetail() {
 
       <ErrorList errors={errors} />
 
-      <div className="subtabs">
+      <div className="folder-tabs" role="tablist">
         {visibleTabs.map((t) => (
-          <button key={t.key} className={`subtab ${tab === t.key ? "active" : ""}`} onClick={() => setTab(t.key)}>
-            {t.label}
+          <button key={t.key} role="tab" aria-selected={tab === t.key} className={`folder-tab ${tab === t.key ? "active" : ""}`} onClick={() => setTab(t.key)}>
+            <Icon name={t.icon} size={20} /> {t.label}
           </button>
         ))}
       </div>
+      <div className="folder-panel">
 
       {tab === "overview" && (
         <div>
           <DewPoint readings={zone.readings} />
           <DataAge minutes={zone.readings?.data_age_minutes} />
+          {extSensors.length > 0 && <div className="section-title">Вътре в зоната <span className="where-tag where-in">вътре</span></div>}
           <div className="gauge-row">
             <Gauge label="Почва T°" value={zone.readings?.soil_t} unit="°" />
             <Gauge label="Почва RH" value={zone.readings?.soil_h} unit="%"
@@ -373,6 +389,39 @@ export default function ZoneDetail() {
             ))}
           </div>
           {sensors.length === 0 && <p className="muted">Няма сензори в тая зона.</p>}
+          {extSensors.length > 0 && (
+            <div className="outside-block">
+              <div className="section-title">Вън на обекта <span className="where-tag where-out">вън</span></div>
+              <p className="muted">
+                Външни сензори, добавени към тази зона: мерят въздуха вън и дават точката на оросяване.
+                Не са в зоната и не влизат в средните по-горе.
+              </p>
+              <div className="ext-grid">
+              {extSensors.map((s) => {
+                const last = (readings[s.id] || []).slice(-1)[0];
+                return (
+                  <div className="tile ext-card" key={s.id}>
+                    <div className="tile-head">
+                      <span className="tile-name">{s.name || s.id}</span>
+                      <span className="tile-head-right">
+                        <BatteryChip compact has={s.has_battery} info={batteries[`sensor:${s.id}`]} />
+                        <span className="id-tag mono">{s.id}</span>
+                      </span>
+                    </div>
+                    <div className="ext-values">
+                      <div><span className="val">{last?.air_t != null ? `${last.air_t.toFixed(1)}°` : "—"}</span><span className="lbl"><Icon name="thermometer" size={14} /> Температура вън</span></div>
+                      <div><span className="val">{last?.air_h != null ? `${last.air_h.toFixed(0)}%` : "—"}</span><span className="lbl"><Icon name="droplet" size={14} /> Влажност вън</span></div>
+                    </div>
+                    <ExternalSensorCharts sensorId={s.id} periodKey={period} height={170} />
+                    <div className="row-actions">
+                      <button className="btn btn-sm" onClick={() => setExtModal(s)}>Отвори</button>
+                    </div>
+                  </div>
+                );
+              })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -388,13 +437,13 @@ export default function ZoneDetail() {
             </div>
           )}
           {layout.length > 0 && sensorView === "map" && (
-            <SensorMap sensors={sensors} layout={layout} objects={mapObjects} readings={readings} errors={errors} />
+            <SensorMap sensors={shown} layout={layout} objects={mapObjects} readings={readings} errors={errors} onSelectExternal={setExtModal} onSelectSensor={setSensorModal} />
           )}
-          {layout.length > 0 && sensorView === "map" && sensors.some((s) => !layout.find((l) => l.sensor_id === s.id)) && (
+          {layout.length > 0 && sensorView === "map" && shown.some((s) => !layout.find((l) => l.sensor_id === s.id)) && (
             <div className="section-title">Без място на картата</div>
           )}
           <div className={`tile-grid ${layout.length > 0 ? "map-list" : ""}`} style={layout.length > 0 ? { "--cols": gp.cols } : undefined}>
-          {sortByMap(sensors, layout).filter((s) => !(layout.length > 0 && sensorView === "map" && layout.find((l) => l.sensor_id === s.id))).map((s) => {
+          {sortByMap(shown, layout).filter((s) => !(layout.length > 0 && sensorView === "map" && layout.find((l) => l.sensor_id === s.id))).map((s) => {
             const last = (readings[s.id] || []).slice(-1)[0];
             const sensorError = errors.find((e) => e.sensor_id === s.id);
             return (
@@ -402,18 +451,27 @@ export default function ZoneDetail() {
                    style={layout.length > 0 ? mapCell(s.id) : undefined}>
                 <div className="tile-head">
                   <span className="tile-name">{s.name}</span>
-                  <span className="id-tag mono">{s.id}</span>
+                  <span className="tile-head-right">
+                    <BatteryChip compact has={s.has_battery} info={batteries[`sensor:${s.id}`]} />
+                    <button className="btn btn-sm" onClick={() => (s.kind === "external" ? setExtModal(s) : setSensorModal(s))}>Графика</button>
+                    <span className="id-tag mono">{s.id}</span>
+                  </span>
                 </div>
+                {s.kind === "external" && (
+                  <div className="tile-next">
+                    <span className="where-tag where-out">вън</span> Външен сензор — служи за точката на оросяване
+                  </div>
+                )}
                 {sensorError && (
                   <div className={`tile-flag sev-${sensorError.severity}`}>
                     {sensorError.severity === "warning" ? "⚠" : "✖"} {sensorError.description}
                   </div>
                 )}
                 <div className="tile-readings">
-                  <div className="tile-reading"><span className="val">{last?.soil_t?.toFixed(1) ?? "—"}°</span><span className="lbl">Почва T°</span></div>
-                  <div className="tile-reading"><span className="val">{last?.soil_h?.toFixed(1) ?? "—"}%</span><span className="lbl">Почва RH</span></div>
-                  <div className="tile-reading"><span className="val">{last?.air_t?.toFixed(1) ?? "—"}°</span><span className="lbl">Въздух T°</span></div>
-                  <div className="tile-reading"><span className="val">{last?.air_h?.toFixed(1) ?? "—"}%</span><span className="lbl">Въздух RH</span></div>
+                  {s.kind !== "external" && <div className="tile-reading"><span className="val">{last?.soil_t?.toFixed(1) ?? "—"}°</span><span className="lbl"><Icon name="thermometer" size={14} /> Почва T°</span></div>}
+                  {s.kind !== "external" && <div className="tile-reading"><span className="val">{last?.soil_h?.toFixed(1) ?? "—"}%</span><span className="lbl"><Icon name="droplet" size={14} /> Почва RH</span></div>}
+                  <div className="tile-reading"><span className="val">{last?.air_t?.toFixed(1) ?? "—"}°</span><span className="lbl"><Icon name="thermometer" size={14} /> Въздух T°</span></div>
+                  <div className="tile-reading"><span className="val">{last?.air_h?.toFixed(1) ?? "—"}%</span><span className="lbl"><Icon name="droplet" size={14} /> Въздух RH</span></div>
                 </div>
               </div>
             );
@@ -524,6 +582,14 @@ export default function ZoneDetail() {
             <span className="muted">Изключва всички клапани и помпи веднага и оставя зоната в ръчен режим.</span>
           </div>
         </fieldset>
+      )}
+
+      </div>
+
+      {sensorModal && <SensorModal sensor={sensorModal} onClose={() => setSensorModal(null)} />}
+      {extModal && (
+        <ExternalSensorModal sensor={extModal} onClose={() => setExtModal(null)}
+                             onShowAll={() => { setExtModal(null); navigate("/", { state: { view: "external" } }); }} />
       )}
 
       {settingsOpen && <ZoneSettingsModal zone={zone} valves={valves} onClose={() => setSettingsOpen(false)} onSaved={loadAll} />}

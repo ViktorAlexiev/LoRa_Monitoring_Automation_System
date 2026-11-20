@@ -12,12 +12,15 @@ export const ERROR_TITLES = {
   PUMP_COMMAND_TIMEOUT: "Помпа не изпълни командата",
   VALVE_NO_EFFECT: "Клапан е отворен, но няма ефект",
   EXECUTOR_OFFLINE: "Няма връзка с модул за управление",
-  LORA_REPEATER_DOWN: "Няма връзка с усилвател на сигнала",
+  LORA_REPEATER_DOWN: "Няма връзка с повторител",
   GATEWAY_OFFLINE: "Няма връзка с централния модул",
   PUMP_CAPACITY_EXCEEDED: "Помпата е претоварена",
   PUMP_QUEUE_WAIT: "Поливането чака ред",
   THRESHOLD_MISCONFIGURED: "Неправилни граници в настройките",
   MODULE_UNREACHABLE: "Няма връзка с модул",
   EXECUTOR_FREQUENT_RESTART: "Модул се рестартира често",
+  BATTERY_LOW: "Батерията е ниска",
+  BATTERY_CRITICAL: "Батерията е почти изтощена",
+  BATTERY_NO_DATA: "Няма данни за батерията",
 };
 export const errorTitle = (code) => ERROR_TITLES[code] || "Проблем";

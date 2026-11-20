@@ -5,7 +5,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import audit, models, pump_capacity, schemas
-from ..zone_stats import zone_averages, zone_data_age_minutes
+from ..zone_stats import external_reference, zone_averages, zone_data_age_minutes
 from ..auth import accessible_zone_ids, get_current_user, require_role, require_zone_control, require_zone_view
 from ..database import get_db
 
@@ -56,9 +56,17 @@ def _zone_summary(zone: models.Zone) -> schemas.ZoneSummary:
     worst = max(open, key=lambda e: severity_rank.get(e.severity, 0), default=None)
 
     summary = schemas.ZoneSummary.model_validate(zone)
+    ext = external_reference(zone)
+    if ext is not None:
+        dew, source = _dew_point(ext["air_t"], ext["air_h"]), "external"
+    else:
+        dew = _dew_point(avgs["air_t"], avgs["air_h"])
+        source = "zone" if dew is not None else None
     summary.readings = schemas.GaugeReadings(
         soil_t=avgs["soil_t"], soil_h=avgs["soil_h"], air_t=avgs["air_t"], air_h=avgs["air_h"],
-        dew_point=_dew_point(avgs["air_t"], avgs["air_h"]),
+        dew_point=dew, dew_source=source,
+        dew_air_t=ext["air_t"] if ext else None, dew_air_h=ext["air_h"] if ext else None,
+        dew_sensor_ids=ext["sensor_ids"] if ext else [],
         data_age_minutes=zone_data_age_minutes(zone),
     )
     summary.modules = modules
@@ -466,11 +474,20 @@ def assign_sensors(zone_id: int, sensor_ids: List[str] = Body(embed=True), db: S
     zone = db.get(models.Zone, zone_id)
     if not zone:
         raise HTTPException(404, "Zone not found")
-    _require_inactive(zone)
+    # Only a normal sensor changes what the zone controls on; a reference
+    # (external) sensor just feeds the dew point, so it may join an active zone.
+    wanted = [db.get(models.Sensor, sid) for sid in sensor_ids]
+    if any(s is None or s.kind != "external" for s in wanted):
+        _require_inactive(zone)
     for sid in sensor_ids:
         sensor = db.get(models.Sensor, sid)
         if not sensor:
             raise HTTPException(400, f"Unknown sensor {sid}")
+        if sensor.kind == "external":
+            # a reference sensor joins any number of zones and never "moves" out of one
+            if not any(l.zone_id == zone_id for l in sensor.external_zones):
+                sensor.external_zones.append(models.ZoneExternalSensor(zone_id=zone_id))
+            continue
         if sensor.zone_id is not None and sensor.zone_id != zone_id:
             _require_source_zone_inactive(sensor.zone)
         if sensor.zone_id != zone_id:
@@ -488,8 +505,17 @@ def unassign_sensor(zone_id: int, sensor_id: str, db: Session = Depends(get_db),
     zone = db.get(models.Zone, zone_id)
     if not zone:
         raise HTTPException(404, "Zone not found")
-    _require_inactive(zone)
     sensor = db.get(models.Sensor, sensor_id)
+    if sensor is None or sensor.kind != "external":
+        _require_inactive(zone)
+    if sensor is not None and sensor.kind == "external":
+        link = next((l for l in sensor.external_zones if l.zone_id == zone_id), None)
+        if link is None:
+            raise HTTPException(404, "Not found in this zone")
+        audit.log(db, user, "sensor_unassign", f"Махнат външен сензор {sensor_id} от зоната", zone=zone)
+        sensor.external_zones.remove(link)
+        db.commit()
+        return {"ok": True}
     if not sensor or sensor.zone_id != zone_id:
         raise HTTPException(404, "Not found in this zone")
     audit.log(db, user, "sensor_unassign", f"Махнат сензор {sensor_id} от зоната", zone=zone)
@@ -750,10 +776,15 @@ def get_layout(zone_id: int, db: Session = Depends(get_db), user: models.User = 
     if not zone:
         raise HTTPException(404, "Zone not found")
     require_zone_view(db, user, zone_id)
-    return [
+    items = [
         schemas.SensorLayoutItem(sensor_id=s.id, x=s.layout.x, y=s.layout.y)
         for s in zone.sensors if s.layout is not None
     ]
+    items += [
+        schemas.SensorLayoutItem(sensor_id=l.sensor_id, x=l.x, y=l.y)
+        for l in zone.external_links if l.x is not None and l.y is not None
+    ]
+    return items
 
 
 @router.put("/{zone_id}/layout", response_model=List[schemas.SensorLayoutItem],
@@ -766,11 +797,15 @@ def set_layout(zone_id: int, payload: schemas.SensorLayoutSet, db: Session = Dep
     if not zone:
         raise HTTPException(404, "Zone not found")
     by_id = {s.id: s for s in zone.sensors}
+    ext_by_id = {l.sensor_id: l for l in zone.external_links}
     wanted = {}
     for item in payload.items:
-        if item.sensor_id not in by_id:
+        if item.sensor_id not in by_id and item.sensor_id not in ext_by_id:
             raise HTTPException(400, f"Сензор {item.sensor_id} не е в тази зона")
         wanted[item.sensor_id] = item
+    for sid, link in ext_by_id.items():  # external sensors keep their position per zone, on the link itself
+        link.x = wanted[sid].x if sid in wanted else None
+        link.y = wanted[sid].y if sid in wanted else None
     for sid, sensor in by_id.items():
         if sid in wanted:
             if sensor.layout is None:

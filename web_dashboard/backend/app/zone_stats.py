@@ -107,6 +107,58 @@ def zone_average(zone, attr):
     return zone_averages(zone)[attr]
 
 
+def sensor_air_now(sensor):
+    """{"air_t", "air_h", "age_minutes"} of ONE sensor: its newest reading
+    (air_t/air_h are None when that reading is older than the averaging
+    window or invalid, but age_minutes still says how stale it is)."""
+    last = (
+        object_session(sensor)
+        .query(models.SensorReading)
+        .filter(models.SensorReading.sensor_id == sensor.id)
+        .order_by(models.SensorReading.recorded_at.desc())
+        .first()
+    )
+    if last is None:
+        return {"air_t": None, "air_h": None, "age_minutes": None}
+    age = max(0, int((datetime.datetime.utcnow() - last.recorded_at).total_seconds() // 60))
+    fresh = age <= CONFIG["sensor_readings"]["averaging_window_minutes"]
+    ok = lambda v: v if (fresh and v is not None and v != SENSOR_FAULT_VALUE) else None
+    return {"air_t": ok(last.air_t), "air_h": ok(last.air_h), "age_minutes": age}
+
+
+def external_reference(zone):
+    """The zone's external (reference) air reading, or None when it has no
+    usable one: {"air_t", "air_h", "sensor_ids"} - each linked, active
+    external sensor contributes its newest valid reading inside the averaging
+    window; several are averaged (outliers dropped like for the zone average).
+    Both air_t and air_h must exist, otherwise no dew point can come from it
+    (the caller then falls back to the zone's own air average)."""
+    ids = [link.sensor_id for link in zone.external_links if link.sensor and link.sensor.is_active]
+    if not ids:
+        return None
+    window_min = CONFIG["sensor_readings"]["averaging_window_minutes"]
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=window_min)
+    rows = (
+        object_session(zone)
+        .query(models.SensorReading)
+        .filter(models.SensorReading.sensor_id.in_(ids), models.SensorReading.recorded_at >= cutoff)
+        .order_by(models.SensorReading.recorded_at.desc())
+        .all()
+    )
+    out = {"sensor_ids": ids}
+    for attr in ("air_t", "air_h"):
+        latest = {}
+        for r in rows:
+            v = getattr(r, attr)
+            if r.sensor_id not in latest and v is not None and v != SENSOR_FAULT_VALUE:
+                latest[r.sensor_id] = v
+        values = list(latest.values())
+        out[attr] = round(robust_mean(values, attr), 1) if values else None
+    if out["air_t"] is None or out["air_h"] is None:
+        return None
+    return out
+
+
 def zone_data_age_minutes(zone):
     """Whole minutes since the newest reading from any of the zone's sensors
     (None if there has never been one). The dashboard shows it next to the

@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { api } from "../api.js";
 import ZoneCard from "../components/ZoneCard.jsx";
 import ErrorList from "../components/ErrorList.jsx";
 import SiteMap from "../components/SiteMap.jsx";
+import ExternalPanel from "../components/ExternalPanel.jsx";
+import ZonePeekModal from "../components/ZonePeekModal.jsx";
+import Icon from "../components/Icon.jsx";
+import BatteryPanel from "../components/BatteryPanel.jsx";
+import ListSearch, { matches } from "../components/ListSearch.jsx";
+import ExternalSensorModal from "../components/ExternalSensorModal.jsx";
 
 const remember = (key, fallback) => {
   try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; }
@@ -13,12 +20,16 @@ const store = (key, value) => {
 
 export default function Dashboard() {
   const [zones, setZones] = useState([]);
-  const [siteMap, setSiteMap] = useState({ zones: [], objects: [] });
+  const location = useLocation();
+  const [siteMap, setSiteMap] = useState({ zones: [], objects: [], sensors: [] });
+  const [extModal, setExtModal] = useState(null); // external sensor whose chart is open
+  const [zonePeek, setZonePeek] = useState(null); // zone clicked on the site map
   const [networkErrors, setNetworkErrors] = useState([]);
   const [error, setError] = useState(null);
   const [refreshSeconds, setRefreshSeconds] = useState(15);
-  const [view, setView] = useState(() => remember("dashView", "list")); // "list" | "map"
+  const [view, setView] = useState(() => location.state?.view || remember("dashView", "list")); // "list" | "map" | "external"
   const [showLocked, setShowLocked] = useState(false);
+  const [query, setQuery] = useState(""); // search in the zone list
 
   async function load() {
     try {
@@ -50,30 +61,44 @@ export default function Dashboard() {
   // The zones you may open come first; the rest are greyed out and only
   // appear after "Покажи".
   // (the map always shows every zone - locked ones grey and inert - so the site picture is complete)
-  const mine = zones.filter((z) => z.accessible);
-  const locked = zones.filter((z) => !z.accessible);
+  const inQuery = (z) => matches(query, z.name, z.description, ...(z.modules || []).flatMap((m) => [m.id, m.name]));
+  const mine = zones.filter((z) => z.accessible && inQuery(z));
+  const locked = zones.filter((z) => !z.accessible && matches(query, z.name));
 
   return (
     <main className="view">
       <div className="page-head">
         <h1>Общ преглед</h1>
-        <p>{mine.length} зони · кликни зона за детайли и управление · обновява се на всеки {refreshSeconds} сек</p>
+        <p>{zones.filter((z) => z.accessible).length} зони · кликни зона за детайли и управление · обновява се на всеки {refreshSeconds} сек</p>
       </div>
       {error && <div className="error-note">Няма връзка с API-то: {error}</div>}
       <ErrorList errors={networkErrors} />
 
-      <div className="period-switch" role="group" aria-label="Изглед">
-        <button className={`btn btn-sm ${view === "list" ? "btn-primary" : ""}`} aria-pressed={view === "list"} onClick={() => chooseView("list")}>Списък</button>
-        <button className={`btn btn-sm ${view === "map" ? "btn-primary" : ""}`} aria-pressed={view === "map"} onClick={() => chooseView("map")}>Карта на обекта</button>
+      <div className="folder-tabs" role="tablist" aria-label="Изглед">
+        {[["list", "list", "Обекти"], ["map", "map", "Карта на обекта"], ["external", "sun", "Външни сензори"], ["battery", "battery", "Батерии"]].map(([key, icon, label]) => (
+          <button key={key} role="tab" aria-selected={view === key} className={`folder-tab ${view === key ? "active" : ""}`} onClick={() => chooseView(key)}>
+            <Icon name={icon} size={20} /> {label}
+          </button>
+        ))}
       </div>
+      <div className="folder-panel">
 
-      {view === "list" ? (
+      {view === "list" && <ListSearch value={query} onChange={setQuery} placeholder="Търси обект по име, описание или клапан…" />}
+      {view === "list" && (
         <div className="zone-grid">
           {mine.map((z) => <ZoneCard key={z.id} zone={z} />)}
-          {mine.length === 0 && <p className="muted">Още нямаш достъп до нито една зона.</p>}
+          {mine.length === 0 && <p className="muted">{query.trim() ? "Няма обект по това търсене." : "Още нямаш достъп до нито една зона."}</p>}
         </div>
-      ) : (
-        <SiteMap zones={zones} map={siteMap} showLocked />
+      )}
+      {view === "map" && <SiteMap zones={zones} map={siteMap} showLocked onSelectExternal={setExtModal} onSelectZone={(z) => setZonePeek(z.id)} />}
+      {view === "external" && <ExternalPanel />}
+      {view === "battery" && <BatteryPanel />}
+      {zonePeek != null && zones.find((z) => z.id === zonePeek) && (
+        <ZonePeekModal zone={zones.find((z) => z.id === zonePeek)} onClose={() => setZonePeek(null)} />
+      )}
+      {extModal && (
+        <ExternalSensorModal sensor={extModal} onClose={() => setExtModal(null)}
+                             onShowAll={() => { setExtModal(null); chooseView("external"); }} />
       )}
 
       {locked.length > 0 && view === "list" && (
@@ -96,6 +121,7 @@ export default function Dashboard() {
           )}
         </section>
       )}
+      </div>
     </main>
   );
 }

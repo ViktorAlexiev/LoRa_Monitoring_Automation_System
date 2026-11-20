@@ -116,6 +116,10 @@ export const api = {
     update: (id, data) => request(`/users/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
     remove: (id) => request(`/users/${id}`, { method: "DELETE" }),
   },
+  battery: {
+    list: () => request("/battery"),
+    history: (kind, id, hours) => request(`/battery/${kind}/${id}/history?hours=${hours}`),
+  },
   config: {
     get: () => request("/config"),
     update: (data) => request("/config", { method: "PATCH", body: JSON.stringify(data) }),
@@ -142,6 +146,7 @@ export const api = {
   },
   site: {
     map: () => request("/site/map"),
+    externalSensors: () => request("/site/external-sensors"),
     saveMap: (data) => request("/site/map", { method: "PUT", body: JSON.stringify(data) }),
   },
 };

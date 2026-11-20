@@ -67,6 +67,26 @@ _DEFAULTS = {
         "outlier_min_diff_air_h": 15,
         "outlier_consecutive_readings": 3,
     },
+    "battery": {
+        # Does a NEW sensor / executor / repeater have a battery? Pre-fills the
+        # "Има батерия" tick in the admin form; each device keeps its own choice.
+        # (A device without a battery sends the "no data" marker -32768 in the
+        # battery field and the server simply ignores it.)
+        "default_has_battery_sensor": True,
+        "default_has_battery_executor": False,
+        "default_has_battery_repeater": True,
+        # mV -> percent. "liion_18650" (default): the discharge curve of a Li-ion
+        # 18650 cell (4.20 V = 100 % ... 3.27 V = 0 %, flat in the middle).
+        # "linear": a straight line between empty_mv and full_mv (for other cells).
+        "curve": "liion_18650",
+        "full_mv": 4200,
+        "empty_mv": 3300,
+        # BATTERY_LOW (warning) at or below this percent, BATTERY_CRITICAL (error) at or below the second.
+        "warn_percent": 25,
+        "critical_percent": 10,
+        # BATTERY_NO_DATA: a device that says it has a battery, is alive, but sent no valid voltage for this long.
+        "no_data_hours": 6,
+    },
     "security": {
         # Sliding window (see app/auth.py) - a logged-in user's session is
         # extended by this many minutes on every request, so someone

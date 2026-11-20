@@ -171,7 +171,7 @@ export default function Zones() {
 
       <div className="zones-admin-grid">
         {zoneTable.rows.map((z) => {
-          const zoneSensors = sensors.filter((s) => s.zone_id === z.id);
+          const zoneSensors = sensors.filter((s) => s.zone_id === z.id || (s.zone_ids || []).includes(z.id));
           const zoneValves = valves.filter((v) => v.zone_id === z.id);
           const locked = z.is_active;
           const transitioning = z.transition_status !== "none";
@@ -281,7 +281,7 @@ export default function Zones() {
       {layoutZone && (
         <ZoneLayoutModal
           zone={layoutZone}
-          sensors={sensors.filter((s) => s.zone_id === layoutZone.id)}
+          sensors={sensors.filter((s) => s.zone_id === layoutZone.id || (s.zone_ids || []).includes(layoutZone.id))}
           onClose={() => setLayoutZone(null)}
         />
       )}

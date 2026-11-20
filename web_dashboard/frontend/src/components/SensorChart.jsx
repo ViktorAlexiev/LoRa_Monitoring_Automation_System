@@ -80,7 +80,7 @@ export default function SensorChart({ label, unit, points, color = "var(--accent
     const hm = d.toLocaleTimeString("bg-BG", { hour: "2-digit", minute: "2-digit" });
     return sameDay ? hm : `${d.toLocaleDateString("bg-BG", { day: "2-digit", month: "2-digit" })} ${hm}`;
   };
-  const nx = width < 420 ? 3 : 5;
+  const nx = width < 300 ? 2 : width < 420 ? 3 : 5; // fewer labels when narrow, so dates never overlap
   const xTicks = Array.from({ length: nx }, (_, i) => t0 + (tSpan * i) / (nx - 1));
 
   function onMove(e) {

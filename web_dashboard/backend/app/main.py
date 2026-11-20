@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 
 from . import models, schemas
 from .auth import get_current_user, hash_password
+from .config import CONFIG
 from .database import Base, SessionLocal, engine, get_db
-from .routers import audit, auth, config, devices, site, users, zones
+from .routers import audit, auth, config, devices, site, users, zones, battery
 from .seed import seed
 
 # MySQL's official image does its first-boot init in two phases with an
@@ -173,6 +174,22 @@ if "last_rssi" in _existing_repeater_cols or "last_snr" in _existing_repeater_co
         conn.execute(text("DROP TABLE repeaters"))
         conn.execute(text("ALTER TABLE repeaters_new RENAME TO repeaters"))
 
+# sensors.kind: "soil" (normal) or "external" (air-only reference sensor).
+_existing_sensor_cols = {c["name"] for c in inspect(engine).get_columns("sensors")}
+if "kind" not in _existing_sensor_cols:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE sensors ADD COLUMN kind VARCHAR(12) NOT NULL DEFAULT 'soil'"))
+
+# has_battery on sensors / executors / repeaters (battery monitoring). Existing
+# devices get the default the admin configured for their type (Настройки).
+for _table, _key in (("sensors", "sensor"), ("executors", "executor"), ("repeaters", "repeater")):
+    _cols = {c["name"] for c in inspect(engine).get_columns(_table)}
+    if "has_battery" not in _cols:
+        _default = 1 if CONFIG["battery"][f"default_has_battery_{_key}"] else 0
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {_table} ADD COLUMN has_battery BOOLEAN NOT NULL DEFAULT 0"))
+            conn.execute(text(f"UPDATE {_table} SET has_battery = {_default}"))
+
 # executors.transport: "lora" (via the Gateway) or "wifi" (direct MQTT).
 _existing_executor_cols = {c["name"] for c in inspect(engine).get_columns("executors")}
 if "transport" not in _existing_executor_cols:
@@ -244,6 +261,7 @@ app.include_router(users.router)
 app.include_router(config.router)
 app.include_router(audit.router)
 app.include_router(site.router)
+app.include_router(battery.router)
 
 
 @app.get("/api/health")

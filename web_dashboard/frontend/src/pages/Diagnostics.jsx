@@ -11,7 +11,7 @@ const fmt = (iso) =>
 
 const deviceOf = (e) =>
   [e.sensor_id && `сензор ${e.sensor_id}`, e.valve_id && `клапан ${e.valve_id}`, e.pump_id && `помпа ${e.pump_id}`,
-    e.executor_id && `модул ${e.executor_id}`, e.repeater_id && `усилвател ${e.repeater_id}`].filter(Boolean).join(", ");
+    e.executor_id && `модул ${e.executor_id}`, e.repeater_id && `повторител ${e.repeater_id}`].filter(Boolean).join(", ");
 
 function Problem({ e }) {
   return (

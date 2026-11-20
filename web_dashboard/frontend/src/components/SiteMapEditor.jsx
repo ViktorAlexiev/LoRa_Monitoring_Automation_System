@@ -17,6 +17,8 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
   const drag = useRef(null);
   const [placed, setPlaced] = useState({}); // zone_id -> { x, y, w, h }
   const [objects, setObjects] = useState([]);
+  const [extSensors, setExtSensors] = useState([]); // all external sensors in the system
+  const [placedSensors, setPlacedSensors] = useState({}); // sensor_id -> { x, y }
   const [selected, setSelected] = useState(null); // "z<id>" or object key
   const [dragging, setDragging] = useState(false); // map bounds stay put while something is being dragged
   const [snap, setSnap] = useState(true);
@@ -33,12 +35,18 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
       .then((m) => {
         setPlaced(Object.fromEntries(m.zones.map((z) => [z.zone_id, { x: z.x, y: z.y, w: z.w, h: z.h }])));
         setObjects(m.objects.map((o) => ({ ...o, key: newKey() })));
+        setPlacedSensors(Object.fromEntries((m.sensors || []).map((s) => [s.sensor_id, { x: s.x, y: s.y }])));
         setLoaded(true);
       })
       .catch((err) => setError(err.message));
   }, []);
 
+  useEffect(() => {
+    api.site.externalSensors().then(setExtSensors).catch(() => {});
+  }, []);
+
   const tray = zones.filter((z) => !placed[z.id]);
+  const sensorTray = extSensors.filter((s) => !placedSensors[s.id]);
   const selZone = typeof selected === "string" && selected.startsWith("z") ? zones.find((z) => `z${z.id}` === selected) : null;
   const selObj = objects.find((o) => o.key === selected);
 
@@ -51,6 +59,11 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
     const n = Object.keys(placed).length;
     setPlaced((p) => ({ ...p, [id]: { x: q(25 + ((n * 20) % 60)), y: q(25 + ((n * 25) % 50)), w: 25, h: 25 } }));
     setSelected(`z${id}`);
+  }
+
+  function addSensor(id) {
+    const n = Object.keys(placedSensors).length;
+    setPlacedSensors((p) => ({ ...p, [id]: { x: q(10 + ((n * 15) % 80)), y: q(10 + ((n * 12) % 30)) } }));
   }
 
   function addObject(kind, label, color) {
@@ -73,7 +86,9 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
     const d = drag.current;
     if (!d) return;
     const { px, py } = pct(e);
-    if (d.type === "zone") {
+    if (d.type === "sensor") {
+      setPlacedSensors((p) => ({ ...p, [d.id]: { x: clamp(q(px + d.dx)), y: clamp(q(py + d.dy)) } }));
+    } else if (d.type === "zone") {
       setPlaced((p) => ({ ...p, [d.id]: { ...p[d.id], x: clamp(q(px + d.dx)), y: clamp(q(py + d.dy)) } }));
     } else if (d.type === "zone-resize") {
       setPlaced((p) => ({ ...p, [d.id]: { ...p[d.id], w: clamp(q((px - p[d.id].x) * 2), 5, 400), h: clamp(q((py - p[d.id].y) * 2), 5, 400) } }));
@@ -91,6 +106,7 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
     const r1 = (v) => Math.round(v * 10) / 10;
     try {
       await api.site.saveMap({
+        sensors: Object.entries(placedSensors).map(([id, p]) => ({ sensor_id: id, x: r1(p.x), y: r1(p.y) })),
         zones: Object.entries(placed).map(([id, p]) => ({ zone_id: Number(id), x: r1(p.x), y: r1(p.y), w: r1(p.w), h: r1(p.h) })),
         objects: objects.map((o) => ({ kind: o.kind, label: o.label, color: o.color || "", x: r1(o.x), y: r1(o.y), w: r1(o.w), h: r1(o.h) })),
       });
@@ -145,7 +161,7 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
 
       <PanZoom
         stageRef={mapRef} className="site-map-whole site-map-edit" freezeBounds={dragging}
-        bounds={mapBounds([...objects, ...Object.values(placed)], { margin: 10, include: { x0: 0, y0: 0, x1: 100, y1: 100 } })}
+        bounds={mapBounds([...objects, ...Object.values(placed), ...Object.values(placedSensors).map((p) => ({ ...p, w: 12, h: 8 }))], { margin: 10, include: { x0: 0, y0: 0, x1: 100, y1: 100 } })}
         onPointerMove={onMove} onPointerUp={endDrag} onPointerCancel={endDrag} onPointerDown={() => setSelected(null)}
       >
         <>
@@ -168,6 +184,14 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
               </div>
             );
           })}
+          {Object.entries(placedSensors).map(([id, p]) => (
+            <div key={id} data-nodrag className="map-chip ext-chip" style={{ left: `${p.x}%`, top: `${p.y}%` }}
+                 onPointerDown={(e) => { if (!e.target.closest(".map-chip-x")) startDrag(e, "sensor", id, p); }}>
+              <span className="map-chip-id mono" title="Външен сензор">↗ {id}</span>
+              <button type="button" className="map-chip-x" aria-label={`Махни ${id} от картата`}
+                      onClick={() => setPlacedSensors((all) => { const n = { ...all }; delete n[id]; return n; })}>&#10005;</button>
+            </div>
+          ))}
           {loaded && Object.keys(placed).length === 0 && objects.length === 0 && (
             <div className="site-map-empty">Добави зоните от списъка отдолу</div>
           )}
@@ -201,6 +225,16 @@ export default function SiteMapEditor({ zones, onClose, onSaved = () => {} }) {
           <span className="muted">Размерът се сменя от точката в ъгъла.</span>
         </div>
       )}
+
+      <div className="section-title">Външни сензори, които още не са на картата</div>
+      <div className="checks">
+        {sensorTray.map((s) => (
+          <button type="button" key={s.id} className="check-chip" onClick={() => addSensor(s.id)}>
+            + <span className="mono">{s.id}</span> <span className="muted">{s.name}</span>
+          </button>
+        ))}
+        {sensorTray.length === 0 && <span className="muted">{extSensors.length ? "Всички външни сензори са на картата." : "Още няма външни сензори."}</span>}
+      </div>
 
       <div className="section-title">Зони, които още не са на картата</div>
       <div className="checks">

@@ -5,6 +5,7 @@ import ConfirmDialog from "../../components/ConfirmDialog.jsx";
 import { SearchBox, Th } from "../../components/TableControls.jsx";
 import { useTable } from "../../utils/useTable.js";
 import { errorTitle } from "../../errorLabels.js";
+import BatteryChip from "../../components/BatteryChip.jsx";
 
 const TABS = [
   { key: "sensors", label: "Сензори" },
@@ -98,6 +99,8 @@ function fmtTime(iso) {
 
 export default function PhysicalModules() {
   const [tab, setTab] = useState("sensors");
+  const [batteries, setBatteries] = useState({}); // "sensor:S001" -> latest battery reading
+  const [batteryCfg, setBatteryCfg] = useState(null); // defaults for "Има батерия" from Настройки
   const [sensors, setSensors] = useState([]);
   const [executors, setExecutors] = useState([]);
   const [repeaters, setRepeaters] = useState([]);
@@ -120,7 +123,7 @@ export default function PhysicalModules() {
   const filtered = useMemo(() => {
     const valveZones = (pred) => valves.filter(pred).map((v) => v.zone_id);
     const zonesOf = {
-      sensors: (x) => [x.zone_id],
+      sensors: (x) => (x.zone_ids && x.zone_ids.length ? x.zone_ids : [x.zone_id]),
       valves: (x) => [x.zone_id],
       pumps: (x) => valveZones((v) => v.pump_id === x.id),
       executors: (x) => [...valveZones((v) => v.executor_id === x.id), ...valveZones((v) => pumps.find((p) => p.id === v.pump_id)?.executor_id === x.id)],
@@ -148,6 +151,8 @@ export default function PhysicalModules() {
 
   async function loadAll() {
     api.zones.list().then(setZones).catch(() => {});
+    api.battery.list().then((l) => setBatteries(Object.fromEntries(l.map((b) => [`${b.kind}:${b.id}`, b])))).catch(() => {});
+    api.config.get().then((c) => setBatteryCfg(c.battery)).catch(() => {});
     const [s, e, r, v, p, g, errs] = await Promise.all([
       api.sensors.list(),
       api.executors.list(),
@@ -188,7 +193,8 @@ export default function PhysicalModules() {
 
   function openAdd() {
     setEditingId(null);
-    setForm({});
+    const kind = { sensors: "sensor", executors: "executor", repeaters: "repeater" }[tab];
+    setForm(kind && batteryCfg ? { has_battery: !!batteryCfg[`default_has_battery_${kind}`] } : {});
     setError(null);
     setFormOpen(true);
   }
@@ -205,11 +211,11 @@ export default function PhysicalModules() {
     try {
       if (editingId) {
         if (tab === "sensors") {
-          await api.sensors.update(editingId, { name: form.name || "", repeater_id: form.repeater_id || null });
+          await api.sensors.update(editingId, { name: form.name || "", repeater_id: form.repeater_id || null, has_battery: !!form.has_battery });
         } else if (tab === "executors") {
-          await api.executors.update(editingId, { name: form.name || "", transport: form.transport || "lora" });
+          await api.executors.update(editingId, { name: form.name || "", transport: form.transport || "lora", has_battery: !!form.has_battery });
         } else if (tab === "repeaters") {
-          await api.repeaters.update(editingId, { name: form.name || "" });
+          await api.repeaters.update(editingId, { name: form.name || "", has_battery: !!form.has_battery });
         } else if (tab === "valves") {
           await api.valves.update(editingId, {
             name: form.name || "",
@@ -231,11 +237,11 @@ export default function PhysicalModules() {
         }
       } else {
         if (tab === "sensors") {
-          await api.sensors.create({ id: form.id, name: form.name || "", repeater_id: form.repeater_id || null });
+          await api.sensors.create({ id: form.id, name: form.name || "", kind: form.kind || "soil", repeater_id: form.repeater_id || null, has_battery: !!form.has_battery });
         } else if (tab === "executors") {
-          await api.executors.create({ id: form.id, name: form.name || "", transport: form.transport || "lora" });
+          await api.executors.create({ id: form.id, name: form.name || "", transport: form.transport || "lora", has_battery: !!form.has_battery });
         } else if (tab === "repeaters") {
-          await api.repeaters.create({ id: form.id, name: form.name || "" });
+          await api.repeaters.create({ id: form.id, name: form.name || "", has_battery: !!form.has_battery });
         } else if (tab === "valves") {
           await api.valves.create({
             id: form.id,
@@ -363,8 +369,10 @@ export default function PhysicalModules() {
               <thead><tr>
                 <Th label="ID" sortKey="id" sort={sensorsTable.sort} onSort={sensorsTable.toggleSort} />
                 <Th label="Име" sortKey="name" sort={sensorsTable.sort} onSort={sensorsTable.toggleSort} />
+                <th>Тип</th>
                 <Th label="Зона" sortKey="zone_id" sort={sensorsTable.sort} onSort={sensorsTable.toggleSort} />
                 <th>Repeater</th>
+                <th>Батерия</th>
                 <Th label="Статус" sortKey="is_active" sort={sensorsTable.sort} onSort={sensorsTable.toggleSort} />
                 <th></th>
               </tr></thead>
@@ -373,8 +381,14 @@ export default function PhysicalModules() {
                   <tr key={s.id}>
                     <td><span className="id-tag mono">{s.id}</span></td>
                     <td>{s.name}</td>
-                    <td className="muted">{s.zone_id ? zoneName(s.zone_id) : "—"}</td>
+                    <td><span className="chip">{s.kind === "external" ? "Външен" : "Вътрешен"}</span></td>
+                    <td className="muted">
+                      {s.kind === "external"
+                        ? ((s.zone_ids || []).length ? s.zone_ids.map(zoneName).join(", ") : "—")
+                        : (s.zone_id ? zoneName(s.zone_id) : "—")}
+                    </td>
                     <td className="muted">{s.repeater_id || "—"}</td>
+                    <td><BatteryChip has={s.has_battery} info={batteries[`sensor:${s.id}`]} /></td>
                     <td><StatusChip item={s} kind="sensors" errors={openErrors} /></td>
                     <td>
                       <button className="btn btn-sm" onClick={() => openEdit("sensors", s)}>Редактирай</button>
@@ -403,6 +417,7 @@ export default function PhysicalModules() {
                 <Th label="ID" sortKey="id" sort={executorsTable.sort} onSort={executorsTable.toggleSort} />
                 <Th label="Описание" sortKey="name" sort={executorsTable.sort} onSort={executorsTable.toggleSort} />
                 <Th label="Връзка" sortKey="transport" sort={executorsTable.sort} onSort={executorsTable.toggleSort} />
+                <th>Батерия</th>
                 <Th label="Последен heartbeat" sortKey="last_heartbeat_at" sort={executorsTable.sort} onSort={executorsTable.toggleSort} />
                 <Th label="Статус" sortKey="is_active" sort={executorsTable.sort} onSort={executorsTable.toggleSort} />
                 <th></th>
@@ -413,6 +428,7 @@ export default function PhysicalModules() {
                     <td><span className="id-tag mono">{e.id}</span></td>
                     <td>{e.name}</td>
                     <td><span className="chip">{e.transport === "wifi" ? "Wi-Fi" : "LoRa"}</span></td>
+                    <td><BatteryChip has={e.has_battery} info={batteries[`executor:${e.id}`]} /></td>
                     <td className="muted">{fmtTime(e.last_heartbeat_at)}</td>
                     <td><StatusChip item={e} kind="executors" errors={openErrors} /></td>
                     <td>
@@ -442,6 +458,7 @@ export default function PhysicalModules() {
                 <Th label="ID" sortKey="id" sort={repeatersTable.sort} onSort={repeatersTable.toggleSort} />
                 <Th label="Описание" sortKey="name" sort={repeatersTable.sort} onSort={repeatersTable.toggleSort} />
                 <th>Свързани сензори</th>
+                <th>Батерия</th>
                 <Th label="Статус" sortKey="is_active" sort={repeatersTable.sort} onSort={repeatersTable.toggleSort} />
                 <th></th>
               </tr></thead>
@@ -451,6 +468,7 @@ export default function PhysicalModules() {
                     <td><span className="id-tag mono">{r.id}</span></td>
                     <td>{r.name}</td>
                     <td className="muted">{r.sensor_ids.join(", ") || "—"}</td>
+                    <td><BatteryChip has={r.has_battery} info={batteries[`repeater:${r.id}`]} /></td>
                     <td><StatusChip item={r} kind="repeaters" errors={openErrors} /></td>
                     <td>
                       <button className="btn btn-sm" onClick={() => openEdit("repeaters", r)}>Редактирай</button>
@@ -622,10 +640,25 @@ export default function PhysicalModules() {
                 </select>
               </div>
             )}
+            {["sensors", "executors", "repeaters"].includes(tab) && (
+              <label className="snap-toggle field full">
+                <input type="checkbox" checked={!!form.has_battery} onChange={(e) => field("has_battery", e.target.checked)} />
+                Има батерия (следи се напрежението ѝ)
+              </label>
+            )}
             {tab === "gateway" && (
               <div className="field full"><label>Описание</label><input value={form.name || ""} onChange={(e) => field("name", e.target.value)} /></div>
             )}
 
+            {tab === "sensors" && (
+              <div className="field full">
+                <label>Тип сензор</label>
+                <select value={form.kind || "soil"} disabled={!!editingId} onChange={(e) => field("kind", e.target.value)}>
+                  <option value="soil">Вътрешен — почва и въздух (за една зона)</option>
+                  <option value="external">Външен — само въздух, референтен за точката на оросяване (може в много зони)</option>
+                </select>
+              </div>
+            )}
             {tab === "sensors" && (
               <div className="field full">
                 <label>Свързан repeater (по избор)</label>

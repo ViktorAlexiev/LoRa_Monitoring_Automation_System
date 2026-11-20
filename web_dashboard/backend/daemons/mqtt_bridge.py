@@ -53,12 +53,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import paho.mqtt.client as mqtt  # noqa: E402
 
-from app import models  # noqa: E402
+from app import models  # noqa: E402, battery
 from app.database import SessionLocal  # noqa: E402
 from daemons.system_config import mqtt_settings  # noqa: E402
 
 TOPIC_SENSORS = "sensors"
 TOPIC_HEARTBEAT = "heartbeat"
+
+
+def _store_battery(db, kind, device, payload):
+    """The battery voltage (mV) of a sensor packet / heartbeat. Ignored when
+    the device is not marked as having a battery, or when the field carries the
+    "no data" marker (-32768) / is missing - exactly what a node without a
+    battery sends."""
+    if not device.has_battery:
+        return
+    mv = battery.valid_mv(payload.get("battery_mv", payload.get("bat")))
+    if mv is not None:
+        db.add(models.BatteryReading(kind=kind, device_id=device.id, mv=mv))
 
 
 def _on_sensors(client, userdata, msg):
@@ -75,16 +87,18 @@ def _on_sensors(client, userdata, msg):
         if sensor is None:
             print(f"mqtt_bridge: reading for unknown sensor {sensor_id!r} - ignored")
             return
+        external = sensor.kind == "external"  # reference sensor: air only, whatever the node sends for soil
         db.add(models.SensorReading(
             sensor_id=sensor_id,
-            soil_t=payload.get("sT"),
-            soil_h=payload.get("sH"),
+            soil_t=None if external else payload.get("sT"),
+            soil_h=None if external else payload.get("sH"),
             air_t=payload.get("aT"),
             air_h=payload.get("aH"),
             # recorded_at deliberately NOT set from payload["ts"] - see
             # module docstring. Falls back to the column default (now()).
             # rssi/snr, if present, are not stored - see module docstring.
         ))
+        _store_battery(db, "sensor", sensor, payload)
         db.commit()
     finally:
         db.close()
@@ -109,6 +123,7 @@ def _on_heartbeat(client, userdata, msg):
                 print(f"mqtt_bridge: heartbeat (with rssi/snr) for unknown repeater {device_id!r} - ignored")
                 return
             device.last_heartbeat_at = now  # rssi/snr values themselves are not stored - see module docstring
+            _store_battery(db, "repeater", device, payload)
             db.commit()
             return
 
@@ -117,6 +132,7 @@ def _on_heartbeat(client, userdata, msg):
         device = db.get(models.Executor, device_id)
         if device is not None:
             device.last_heartbeat_at = now
+            _store_battery(db, "executor", device, payload)
             db.commit()
             return
 

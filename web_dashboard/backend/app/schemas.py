@@ -82,6 +82,14 @@ class GaugeReadings(BaseModel):
     # Magnus-Tetens approximation from air_t/air_h - see routers/zones.py's
     # _dew_point. Null only when air_t/air_h themselves are unavailable.
     dew_point: Optional[float] = None
+    # Where the dew point came from: "external" = the zone's reference sensor(s)
+    # outside the crop (dew_air_t / dew_air_h are THEIR readings, and the "air
+    # almost at dew point" warning compares against dew_air_t), "zone" = the
+    # zone's own air sensors, null = no dew point.
+    dew_source: Optional[Literal["external", "zone"]] = None
+    dew_air_t: Optional[float] = None
+    dew_air_h: Optional[float] = None
+    dew_sensor_ids: List[str] = []
     # Minutes since the newest reading from any sensor in the zone (None = never).
     data_age_minutes: Optional[int] = None
 
@@ -145,18 +153,21 @@ class ExecutorCreate(BaseModel):
     id: DeviceId
     name: str = ""
     transport: Literal["lora", "wifi"] = "lora"
+    has_battery: Optional[bool] = None  # None = the default from Настройки
 
 
 class ExecutorUpdate(BaseModel):
     name: Optional[str] = None
     is_active: Optional[bool] = None
     transport: Optional[Literal["lora", "wifi"]] = None
+    has_battery: Optional[bool] = None
 
 
 class ExecutorOut(ORMModel):
     id: str
     name: str
     is_active: bool
+    has_battery: bool = False
     transport: Literal["lora", "wifi"] = "lora"
     last_heartbeat_at: Optional[datetime.datetime] = None
 
@@ -165,18 +176,21 @@ class RepeaterCreate(BaseModel):
     id: DeviceId
     name: str = ""
     sensor_ids: List[str] = []
+    has_battery: Optional[bool] = None
 
 
 class RepeaterUpdate(BaseModel):
     name: Optional[str] = None
     is_active: Optional[bool] = None
     sensor_ids: Optional[List[str]] = None
+    has_battery: Optional[bool] = None
 
 
 class RepeaterOut(ORMModel):
     id: str
     name: str
     is_active: bool
+    has_battery: bool = False
     last_heartbeat_at: Optional[datetime.datetime] = None
     sensor_ids: List[str] = []
 
@@ -201,8 +215,10 @@ class GatewayOut(ORMModel):
 class SensorCreate(BaseModel):
     id: DeviceId
     name: str = ""
+    kind: Literal["soil", "external"] = "soil"
     zone_id: Optional[int] = None
     repeater_id: Optional[str] = None
+    has_battery: Optional[bool] = None
 
 
 class SensorUpdate(BaseModel):
@@ -210,12 +226,16 @@ class SensorUpdate(BaseModel):
     zone_id: Optional[int] = None
     repeater_id: Optional[str] = None
     is_active: Optional[bool] = None
+    has_battery: Optional[bool] = None
 
 
 class SensorOut(ORMModel):
     id: str
     name: str
+    kind: Literal["soil", "external"] = "soil"
+    has_battery: bool = False
     zone_id: Optional[int] = None
+    zone_ids: List[int] = []  # external sensors: the zones they take part in
     is_active: bool
     repeater_id: Optional[str] = None
 
@@ -327,9 +347,44 @@ class SiteZoneItem(BaseModel):
     h: float = Field(ge=3, le=400)
 
 
+class SiteSensorItem(BaseModel):
+    sensor_id: str
+    x: float = Field(ge=-300, le=400)
+    y: float = Field(ge=-300, le=400)
+
+
+class SiteSensorOut(SiteSensorItem):
+    """An external sensor on the whole-site map, with its live values."""
+    name: str = ""
+    is_active: bool = True
+    air_t: Optional[float] = None
+    air_h: Optional[float] = None
+    dew_point: Optional[float] = None
+    age_minutes: Optional[int] = None
+
+
+class SiteMapIn(BaseModel):
+    zones: List[SiteZoneItem] = []
+    objects: List[MapObjectItem] = []
+    sensors: List[SiteSensorItem] = []
+
+
 class SiteMapOut(BaseModel):
     zones: List[SiteZoneItem] = []
     objects: List[MapObjectItem] = []
+    sensors: List[SiteSensorOut] = []
+
+
+class ExternalSensorOut(BaseModel):
+    """An external (reference) sensor for the dashboard's "Външни" tab."""
+    id: str
+    name: str = ""
+    is_active: bool = True
+    zones: List[dict] = []  # [{id, name}] it takes part in
+    air_t: Optional[float] = None
+    air_h: Optional[float] = None
+    dew_point: Optional[float] = None
+    age_minutes: Optional[int] = None
 
 
 class ZoneScheduleCreate(BaseModel):
@@ -406,6 +461,18 @@ class HealthChecksConfig(BaseModel):
     frequent_restart_window_minutes: int
 
 
+class BatteryConfig(BaseModel):
+    default_has_battery_sensor: bool
+    default_has_battery_executor: bool
+    default_has_battery_repeater: bool
+    curve: str = "liion_18650"
+    full_mv: int
+    empty_mv: int
+    warn_percent: int
+    critical_percent: int
+    no_data_hours: int
+
+
 class SecurityConfig(BaseModel):
     session_timeout_minutes: int
 
@@ -421,6 +488,7 @@ class SystemConfig(BaseModel):
     sensor_readings: SensorReadingsConfig
     refresh_intervals: RefreshIntervals
     health_checks: HealthChecksConfig
+    battery: BatteryConfig
     security: SecurityConfig
     data_retention: DataRetentionConfig
 
@@ -460,6 +528,18 @@ class HealthChecksConfigUpdate(BaseModel):
     frequent_restart_window_minutes: Optional[int] = None
 
 
+class BatteryConfigUpdate(BaseModel):
+    default_has_battery_sensor: Optional[bool] = None
+    default_has_battery_executor: Optional[bool] = None
+    default_has_battery_repeater: Optional[bool] = None
+    curve: Optional[str] = None
+    full_mv: Optional[int] = None
+    empty_mv: Optional[int] = None
+    warn_percent: Optional[int] = None
+    critical_percent: Optional[int] = None
+    no_data_hours: Optional[int] = None
+
+
 class SecurityConfigUpdate(BaseModel):
     session_timeout_minutes: Optional[int] = None
 
@@ -475,6 +555,7 @@ class SystemConfigUpdate(BaseModel):
     sensor_readings: Optional[SensorReadingsConfigUpdate] = None
     refresh_intervals: Optional[RefreshIntervalsUpdate] = None
     health_checks: Optional[HealthChecksConfigUpdate] = None
+    battery: Optional[BatteryConfigUpdate] = None
     security: Optional[SecurityConfigUpdate] = None
     data_retention: Optional[DataRetentionConfigUpdate] = None
 

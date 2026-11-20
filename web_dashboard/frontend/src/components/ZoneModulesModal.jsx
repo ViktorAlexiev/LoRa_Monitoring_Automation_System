@@ -5,15 +5,18 @@ import Modal from "./Modal.jsx";
 const KIND_LABEL = { sensor: "сензор", valve: "клапан" };
 const KIND_LABEL_PLURAL = { sensor: "Сензори", valve: "Клапани" };
 
+// a normal sensor belongs to one zone; an external (reference) sensor to any number of them
+const inZone = (it, zoneId) => it.zone_id === zoneId || (it.zone_ids || []).includes(zoneId);
+
 export default function ZoneModulesModal({
   zone, kind, allItems, pumps, executors, repeaters, locked, onClose, onSaved,
 }) {
   const [localItems, setLocalItems] = useState(allItems);
   const [selected, setSelected] = useState(
-    () => new Set(allItems.filter((it) => it.zone_id === zone.id).map((it) => it.id))
+    () => new Set(allItems.filter((it) => inZone(it, zone.id)).map((it) => it.id))
   );
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ id: "", name: "", pump_id: "", executor_id: "", repeater_id: "" });
+  const [form, setForm] = useState({ id: "", name: "", pump_id: "", executor_id: "", repeater_id: "", kind: "soil" });
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -31,7 +34,7 @@ export default function ZoneModulesModal({
     try {
       let created;
       if (kind === "sensor") {
-        created = await api.sensors.create({ id: form.id, name: form.name, repeater_id: form.repeater_id || null });
+        created = await api.sensors.create({ id: form.id, name: form.name, kind: form.kind || "soil", repeater_id: form.repeater_id || null, has_battery: form.has_battery !== false });
       } else {
         if (!form.pump_id || !form.executor_id) {
           setError("Нов клапан трябва да има избрана помпа и изпълнител, за да може да влезе в зона.");
@@ -44,7 +47,7 @@ export default function ZoneModulesModal({
       }
       setLocalItems((prev) => [...prev, created]);
       setSelected((s) => new Set(s).add(created.id));
-      setForm({ id: "", name: "", pump_id: "", executor_id: "", repeater_id: "" });
+      setForm({ id: "", name: "", pump_id: "", executor_id: "", repeater_id: "", kind: "soil" });
       setCreating(false);
       setError(null);
     } catch (err) {
@@ -55,7 +58,7 @@ export default function ZoneModulesModal({
   async function save() {
     setSaving(true);
     setError(null);
-    const originalIds = new Set(allItems.filter((it) => it.zone_id === zone.id).map((it) => it.id));
+    const originalIds = new Set(allItems.filter((it) => inZone(it, zone.id)).map((it) => it.id));
     const toAdd = [...selected].filter((id) => !originalIds.has(id));
     const toRemove = [...originalIds].filter((id) => !selected.has(id));
     try {
@@ -85,7 +88,8 @@ export default function ZoneModulesModal({
         {localItems.map((it) => {
           const elsewhere = it.zone_id && it.zone_id !== zone.id;
           const notWired = kind === "valve" && !elsewhere && (!it.pump_id || !it.executor_id);
-          const disabled = locked || elsewhere || notWired;
+          const external = it.kind === "external";
+          const disabled = (locked && !external) || elsewhere || notWired; // a reference sensor can join an active zone
           return (
             <label
               key={it.id}
@@ -101,7 +105,7 @@ export default function ZoneModulesModal({
               <span className="id-tag mono">{it.id}</span>
               <span className="module-name">{it.name}</span>
               <span className="muted module-note">
-                {elsewhere ? "в друга зона" : notWired ? "няма помпа/изпълнител" : ""}
+                {external ? "външен" + ((it.zone_ids || []).filter((z) => z !== zone.id).length ? ` (и в ${(it.zone_ids || []).filter((z) => z !== zone.id).length} др.)` : "") : elsewhere ? "в друга зона" : notWired ? "няма помпа/изпълнител" : ""}
               </span>
             </label>
           );
@@ -128,6 +132,21 @@ export default function ZoneModulesModal({
           </div>
           <div className="field"><label>Име</label><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
 
+          {kind === "sensor" && (
+            <div className="field full">
+              <label>Тип сензор</label>
+              <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
+                <option value="soil">Вътрешен — почва и въздух (за тази зона)</option>
+                <option value="external">Външен — само въздух, референтен за точката на оросяване (може в много зони)</option>
+              </select>
+            </div>
+          )}
+          {kind === "sensor" && (
+            <label className="snap-toggle field full">
+              <input type="checkbox" checked={form.has_battery !== false} onChange={(e) => setForm({ ...form, has_battery: e.target.checked })} />
+              Има батерия (следи се напрежението ѝ)
+            </label>
+          )}
           {kind === "sensor" && (
             <div className="field full">
               <label>Свързан repeater (по избор)</label>

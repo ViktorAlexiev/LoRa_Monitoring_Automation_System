@@ -2,6 +2,7 @@ import datetime
 
 from sqlalchemy import (
     Boolean,
+    Index,
     Column,
     DateTime,
     Enum,
@@ -57,6 +58,7 @@ class Zone(Base):
     map_objects = relationship("ZoneMapObject", back_populates="zone", cascade="all, delete-orphan")
     site_pos = relationship("SiteMapZone", back_populates="zone", uselist=False, cascade="all, delete-orphan")
     thresholds = relationship("ZoneThreshold", back_populates="zone", cascade="all, delete-orphan")
+    external_links = relationship("ZoneExternalSensor", back_populates="zone", cascade="all, delete-orphan")
     errors = relationship("ZoneError", back_populates="zone", cascade="all, delete-orphan")
     events = relationship("ZoneEvent", back_populates="zone", cascade="all, delete-orphan")
 
@@ -73,6 +75,7 @@ class Executor(Base):
     # How this module is reached: "lora" (through the Gateway, topic
     # "commands") or "wifi" (straight over MQTT, topic "wifi_commands").
     transport = Column(String(8), default="lora", nullable=False, server_default="lora")
+    has_battery = Column(Boolean, nullable=False, default=False, server_default="0")
 
     valves = relationship("Valve", back_populates="executor")
     pumps = relationship("Pump", back_populates="executor")
@@ -84,6 +87,7 @@ class Repeater(Base):
     id = Column(String(6), primary_key=True)  # e.g. "R001"
     name = Column(String(255), default="")
     is_active = Column(Boolean, default=True)
+    has_battery = Column(Boolean, nullable=False, default=False, server_default="0")
     last_heartbeat_at = Column(DateTime, nullable=True)
 
     sensors = relationship("RepeaterSensor", back_populates="repeater", cascade="all, delete-orphan")
@@ -105,11 +109,60 @@ class Sensor(Base):
     name = Column(String(255), default="")
     zone_id = Column(Integer, ForeignKey("zones.id"), nullable=True)
     is_active = Column(Boolean, default=True)
+    # "soil": a normal zone sensor (soil + air readings, belongs to ONE zone via
+    # zone_id). "external": a reference sensor outside the crop - air
+    # temperature/humidity only, used to work out the dew point; it has no
+    # zone_id and can be linked to MANY zones (ZoneExternalSensor).
+    kind = Column(String(12), nullable=False, default="soil", server_default="soil")
+    has_battery = Column(Boolean, nullable=False, default=False, server_default="0")  # battery voltage is tracked (BatteryReading)
 
     zone = relationship("Zone", back_populates="sensors")
+    external_zones = relationship("ZoneExternalSensor", back_populates="sensor", cascade="all, delete-orphan")
+    site_pos = relationship("SiteMapSensor", back_populates="sensor", uselist=False, cascade="all, delete-orphan")
     readings = relationship("SensorReading", back_populates="sensor", cascade="all, delete-orphan")
     repeaters = relationship("RepeaterSensor", back_populates="sensor", cascade="all, delete-orphan")
     layout = relationship("SensorLayout", back_populates="sensor", uselist=False, cascade="all, delete-orphan")
+
+
+    @property
+    def zone_ids(self):
+        """Zones an external sensor is linked to (empty for a normal sensor)."""
+        return sorted(link.zone_id for link in self.external_zones)
+
+
+class ZoneExternalSensor(Base):
+    """An external (reference) sensor taking part in a zone: its air readings
+    give the zone's dew point. Many-to-many; x/y is where it sits on THIS
+    zone's map (null = not placed), which is why it can't use sensor_layout
+    (one position per sensor)."""
+
+    __tablename__ = "zone_external_sensors"
+
+    zone_id = Column(Integer, ForeignKey("zones.id"), primary_key=True)
+    sensor_id = Column(String(6), ForeignKey("sensors.id"), primary_key=True)
+    x = Column(Float, nullable=True)
+    y = Column(Float, nullable=True)
+
+    zone = relationship("Zone", back_populates="external_links")
+    sensor = relationship("Sensor", back_populates="external_zones")
+
+
+class BatteryReading(Base):
+    """Battery voltage (mV) reported by a sensor (in its data packet) or by an
+    executor / repeater (in its heartbeat). Only stored for devices flagged
+    has_battery; the "no data" marker -32768 is never stored. kind is
+    "sensor" | "executor" | "repeater"; no foreign key - one table for three
+    device types."""
+
+    __tablename__ = "battery_readings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    kind = Column(String(10), nullable=False)
+    device_id = Column(String(6), nullable=False)
+    mv = Column(Integer, nullable=False)
+    recorded_at = Column(DateTime, default=now, index=True)
+
+    __table_args__ = (Index("ix_battery_device_time", "kind", "device_id", "recorded_at"),)
 
 
 class SensorLayout(Base):
@@ -185,6 +238,19 @@ class SiteMapZone(Base):
     h = Column(Float, nullable=False)
 
     zone = relationship("Zone", back_populates="site_pos")
+
+
+class SiteMapSensor(Base):
+    """Where an external (reference) sensor sits on the map of the WHOLE site,
+    so its live values show up right there. Cosmetic, own table (create_all)."""
+
+    __tablename__ = "site_map_sensors"
+
+    sensor_id = Column(String(6), ForeignKey("sensors.id"), primary_key=True)
+    x = Column(Float, nullable=False)
+    y = Column(Float, nullable=False)
+
+    sensor = relationship("Sensor", back_populates="site_pos")
 
 
 class SiteMapObject(Base):

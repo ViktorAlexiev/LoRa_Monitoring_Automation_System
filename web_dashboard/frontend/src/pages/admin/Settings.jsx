@@ -56,6 +56,22 @@ const FIELDS = [
     ],
   },
   {
+    section: "battery",
+    title: "Батерии",
+    items: [
+      { key: "default_has_battery_sensor", label: "Нов сензор има батерия по подразбиране", type: "bool" },
+      { key: "default_has_battery_executor", label: "Нов модул за управление има батерия по подразбиране", type: "bool" },
+      { key: "default_has_battery_repeater", label: "Нов повторител има батерия по подразбиране", type: "bool" },
+      { key: "curve", label: "Тип батерия (как се смята процентът)", type: "select",
+        options: [["liion_18650", "Литиево-йонна 18650 (по подразбиране)"], ["linear", "Друга — линейно между празна и пълна"]] },
+      { key: "full_mv", label: "Напрежение на пълна батерия (100%) — само за линейно", suffix: "mV" },
+      { key: "empty_mv", label: "Напрежение на празна батерия (0%) — само за линейно", suffix: "mV" },
+      { key: "warn_percent", label: "Предупреждение „ниска батерия“ при", suffix: "%" },
+      { key: "critical_percent", label: "Проблем „почти изтощена“ при", suffix: "%" },
+      { key: "no_data_hours", label: "Няма данни за батерията (устройството работи, но не праща напрежение) за", suffix: "часа" },
+    ],
+  },
+  {
     section: "security",
     title: "Сигурност",
     items: [
@@ -101,8 +117,8 @@ export default function Settings() {
       const payload = {};
       for (const { section, items } of FIELDS) {
         payload[section] = {};
-        for (const { key } of items) {
-          payload[section][key] = Number(config[section][key]);
+        for (const { key, type } of items) {
+          payload[section][key] = type === "bool" ? !!config[section][key] : type === "select" ? String(config[section][key]) : Number(config[section][key]);
         }
       }
       const updated = await api.config.update(payload);
@@ -141,15 +157,31 @@ export default function Settings() {
         <div className="table-card" key={section}>
           <div className="table-toolbar"><h2>{title}</h2></div>
           <div className="form-grid settings-grid">
-            {items.map(({ key, label, suffix }) => (
+            {items.map(({ key, label, suffix, type, options }) => (
               <div className="field" key={key}>
-                <label>{label}{suffix && ` (${suffix})`}</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={config[section][key]}
-                  onChange={(e) => setValue(section, key, e.target.value)}
-                />
+                {type === "select" ? (
+                  <>
+                    <label>{label}</label>
+                    <select value={config[section][key]} onChange={(e) => setValue(section, key, e.target.value)}>
+                      {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </>
+                ) : type === "bool" ? (
+                  <label className="snap-toggle">
+                    <input type="checkbox" checked={!!config[section][key]} onChange={(e) => setValue(section, key, e.target.checked)} />
+                    {label}
+                  </label>
+                ) : (
+                  <>
+                    <label>{label}{suffix && ` (${suffix})`}</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={config[section][key]}
+                      onChange={(e) => setValue(section, key, e.target.value)}
+                    />
+                  </>
+                )}
               </div>
             ))}
           </div>

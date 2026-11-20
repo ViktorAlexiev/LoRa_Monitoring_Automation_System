@@ -101,6 +101,11 @@ Checks implemented so far:
     highest-volume table in the schema. Throttled to once per
     CLEANUP_INTERVAL_SECONDS, not every tick.
 
+16. BATTERY_LOW (warning) / BATTERY_CRITICAL (error) / BATTERY_NO_DATA
+    (warning) - see _check_battery: devices flagged has_battery report their
+    voltage in mV (sensor packet / heartbeat, stored by mqtt_bridge.py as
+    BatteryReading); the percent comes from app/battery.py.
+
 15. EXECUTOR_FREQUENT_RESTART (warning) - not in the original catalog: reads
     AuditLog (app/audit.py), not ZONE_ERRORS/heartbeats, for
     config["health_checks"]["frequent_restart_count"] "executor_restart"
@@ -130,7 +135,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import models  # noqa: E402
+from app import battery, models  # noqa: E402
 from app.config import CONFIG  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
 from app.zone_stats import outlier_flags, zone_average  # noqa: E402
@@ -308,14 +313,23 @@ def _check_sensor_offline(db, now):
             _resolve(db, "SENSOR_OFFLINE", zone_id=sensor.zone_id, sensor_id=sensor.id)
 
 
+AIR_FIELDS = {"air_t": "въздушна температура", "air_h": "въздушна влажност"}
+ALL_FIELDS = {"soil_t": "почвена температура", "soil_h": "почвена влажност", **AIR_FIELDS}
+
+
+def _fields_of(sensor):
+    """An external (reference) sensor only measures the air - it has no soil
+    probe, so a soil value that is missing/invalid is normal, not a fault."""
+    return AIR_FIELDS if sensor.kind == "external" else ALL_FIELDS
+
+
 def _check_sensor_fault_255(db):
     """zone_errors_catalog.docx: SENSOR_FAULT_255 (error) - a reading row
     contains the "invalid this cycle" marker in one of its fields. Checked
     against the sensor's LATEST reading only - an old -32768 that's since been
     superseded by a real value shouldn't keep the error open."""
-    fields = {"soil_t": "почвена температура", "soil_h": "почвена влажност",
-              "air_t": "въздушна температура", "air_h": "въздушна влажност"}
     for sensor in db.query(models.Sensor).filter_by(is_active=True).all():
+        fields = _fields_of(sensor)
         last = _latest(sensor)
         if last is None:
             continue
@@ -412,7 +426,7 @@ def _check_device_offline(db, now):
 
     device_checks = [
         (models.Executor, "EXECUTOR_OFFLINE", "Модул за управление", "executor_id"),
-        (models.Repeater, "LORA_REPEATER_DOWN", "Усилвател на сигнала", "repeater_id"),
+        (models.Repeater, "LORA_REPEATER_DOWN", "Повторител", "repeater_id"),
         (models.Gateway, "GATEWAY_OFFLINE", "Централният модул", None),
     ]
     for model, error_code, label, id_field in device_checks:
@@ -499,9 +513,8 @@ def _check_valve_no_effect(db, now):
 def _check_sensor_stuck(db, now):
     limit_minutes = CONFIG["health_checks"]["sensor_stuck_minutes"]
     cutoff = now - datetime.timedelta(minutes=limit_minutes)
-    fields = {"soil_t": "почвена температура", "soil_h": "почвена влажност",
-              "air_t": "въздушна температура", "air_h": "въздушна влажност"}
     for sensor in db.query(models.Sensor).filter_by(is_active=True).all():
+        fields = _fields_of(sensor)
         window = [r for r in sensor.readings if r.recorded_at >= cutoff]
         # Need at least 3 points AND a window that actually spans close to
         # the full limit - otherwise a sensor that just started reporting
@@ -533,9 +546,8 @@ def _check_sensor_stuck(db, now):
 
 
 def _check_sensor_out_of_range(db):
-    fields = {"soil_t": "почвена температура", "soil_h": "почвена влажност",
-              "air_t": "въздушна температура", "air_h": "въздушна влажност"}
     for sensor in db.query(models.Sensor).filter_by(is_active=True).all():
+        fields = _fields_of(sensor)
         last = _latest(sensor)
         if last is None:
             continue
@@ -675,6 +687,76 @@ def _check_sensor_outlier(db):
                 _resolve(db, "SENSOR_OUTLIER", zone_id=zone.id, sensor_id=s.id)
 
 
+def _check_battery(db, now):
+    """BATTERY_LOW (warning) / BATTERY_CRITICAL (error) / BATTERY_NO_DATA
+    (warning) for every device marked has_battery (sensors, executors,
+    repeaters). Thresholds and the mV -> percent curve are config battery.*
+    (app/battery.py). A device that is not marked as having a battery has all
+    three resolved, so ticking the box off clears them. NO_DATA only for a
+    device that is otherwise ALIVE (its own offline alarm already covers a
+    dead one) yet has sent no valid voltage for config battery.no_data_hours -
+    e.g. the box is ticked but the node has no battery (it sends -32768)."""
+    cfg = CONFIG["battery"]
+    no_data_after = now - datetime.timedelta(hours=cfg["no_data_hours"])
+    alive_after = now - datetime.timedelta(minutes=CONFIG["health_checks"]["device_offline_minutes"])
+    sensor_alive_after = now - datetime.timedelta(minutes=CONFIG["health_checks"]["sensor_offline_minutes"])
+
+    groups = [
+        ("sensor", "Сензор", models.Sensor, "sensor_id", lambda d: _latest_time(d) and _latest_time(d) >= sensor_alive_after),
+        ("executor", "Модул за управление", models.Executor, "executor_id", lambda d: d.last_heartbeat_at and d.last_heartbeat_at >= alive_after),
+        ("repeater", "Повторител", models.Repeater, "repeater_id", lambda d: d.last_heartbeat_at and d.last_heartbeat_at >= alive_after),
+    ]
+    for kind, label, model, id_field, alive in groups:
+        for dev in db.query(model).all():
+            kw = {id_field: dev.id}
+            if kind == "sensor":
+                kw["zone_id"] = dev.zone_id
+            if not dev.has_battery or not dev.is_active:
+                for code in ("BATTERY_LOW", "BATTERY_CRITICAL", "BATTERY_NO_DATA"):
+                    _resolve(db, code, **kw)
+                continue
+            last = (
+                db.query(models.BatteryReading).filter_by(kind=kind, device_id=dev.id)
+                .order_by(models.BatteryReading.recorded_at.desc()).first()
+            )
+            if last is None or last.recorded_at < no_data_after:
+                _resolve(db, "BATTERY_LOW", **kw)
+                _resolve(db, "BATTERY_CRITICAL", **kw)
+                if alive(dev):
+                    _open_or_refresh(
+                        db, "BATTERY_NO_DATA", "warning",
+                        f"{_nm(label, dev)} е отбелязан с батерия, но от повече от {cfg['no_data_hours']} ч не праща "
+                        f"напрежението ѝ. Проверете дали има батерия, или махнете отметката „Има батерия“.",
+                        **kw,
+                    )
+                else:
+                    _resolve(db, "BATTERY_NO_DATA", **kw)
+                continue
+            _resolve(db, "BATTERY_NO_DATA", **kw)
+            pct = battery.percent(last.mv)
+            lvl = battery.level(pct)
+            volts = f"{last.mv / 1000:.2f} V (около {pct}%)"
+            if lvl == "critical":
+                _open_or_refresh(
+                    db, "BATTERY_CRITICAL", "error",
+                    f"Батерията на {_nm(label.lower(), dev)} е почти изтощена — {volts}. Сменете или заредете я веднага, "
+                    f"иначе устройството ще спре.", **kw)
+                _resolve(db, "BATTERY_LOW", **kw)
+            elif lvl == "low":
+                _open_or_refresh(
+                    db, "BATTERY_LOW", "warning",
+                    f"Батерията на {_nm(label.lower(), dev)} е ниска — {volts}. Планирайте смяна или зареждане.", **kw)
+                _resolve(db, "BATTERY_CRITICAL", **kw)
+            else:
+                _resolve(db, "BATTERY_LOW", **kw)
+                _resolve(db, "BATTERY_CRITICAL", **kw)
+
+
+def _latest_time(sensor):
+    last = _latest(sensor)
+    return last.recorded_at if last else None
+
+
 def _progress_zone_transitions(db):
     """Resolves Zone.transition_status="waiting" (see models.Zone and
     routers/zones.py's update_zone) - the only place that decides whether a
@@ -739,6 +821,7 @@ def _cleanup_old_sensor_readings(db, now):
     _last_retention_cleanup = now
     days = CONFIG["data_retention"]["sensor_readings_retention_days"]
     cutoff = now - datetime.timedelta(days=days)
+    db.query(models.BatteryReading).filter(models.BatteryReading.recorded_at < cutoff).delete(synchronize_session=False)
     deleted = (
         db.query(models.SensorReading)
         .filter(models.SensorReading.recorded_at < cutoff)
@@ -766,6 +849,7 @@ def tick():
         _check_threshold_misconfigured(db)
         _check_device_offline(db, now)
         _check_executor_frequent_restart(db, now)
+        _check_battery(db, now)
         db.commit()
     finally:
         db.close()
